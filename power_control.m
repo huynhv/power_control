@@ -10,8 +10,9 @@ rng(seed);
 
 % Choose which experiment to run.
 
-experiment_list = ["nae_disjoint", "nae_joint", "cwe_disjoint", "cwe_joint", "cwe_joint_grid", "random_dropout", "nae_joint_imperfect_tpi", "cwe_joint_imperfect_tpi", "cwe_disjoint_energy_opt"];
-experiment = "cwe_disjoint_energy_opt";
+experiment_list = ["nae_disjoint", "nae_joint", "cwe_disjoint", "cwe_joint", "cwe_joint_grid", "random_dropout", ...
+    "nae_joint_imperfect_tpi", "cwe_joint_imperfect_tpi", "cwe_disjoint_sum_energy_opt, cwe_disjoint_indiv_energy_opt"];
+experiment = "cwe_disjoint_sum_energy_opt";
 save_images = false;
 
 % Set number of deployments.
@@ -29,16 +30,11 @@ if experiment == "random_dropout"
     sensor_dimension = length(dropout_vals);
     % Here we only consider maximum number of sensors and drop from there.
     sensor_vals = [10];
-    
-    which_dropout = zeros(nDeployments,max(dropout_vals));
-    for idx = 1:nDeployments
-        which_dropout(idx,:) = randperm(max(sensor_vals),max(dropout_vals));
-    end
 else
     if experiment == "cwe_joint_grid"
         sensor_vals = [5];
         agent_db_values = [0,5,10,15,20];
-    elseif experiment == "cwe_disjoint_energy_opt"
+    elseif experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
         sensor_vals = [10];
         agent_db_values = [0];
     else
@@ -93,7 +89,7 @@ end
 lower_tpi = 0;
 
 % Define range for distributions of alpha and t0, non-informative priors
-upper_alpha = 3;
+upper_alpha = 2;
 lower_alpha = 1;
 
 % Set maximum value of t0 such that the signal from each sensor is guaranteed to
@@ -112,7 +108,7 @@ all_gi = (randn(1,max(sensor_vals),1,nDeployments) + 1i*randn(1,max(sensor_vals)
 
 % Define Rayleigh distribution parameters.
 rayleigh_factor = 1/sqrt(2);
-E_mag_g_sqr = 2*rayleigh_factor^2;
+E_mag_g_sqrd = 2*rayleigh_factor^2;
 
 % Choose which schemes we want to plot. Note that although we still generate the
 % results for NPC, we do not necessarily plot them. there is no gurantee that
@@ -128,16 +124,22 @@ all_ti = unifrnd(lower_ti,upper_ti,1,max(sensor_vals),1,nDeployments);
 all_tpi = unifrnd(lower_tpi,upper_tpi,1,max(sensor_vals),1,nDeployments);
 
 %%%% add new random variables down here?
+if experiment == "random_dropout"
+    which_dropout = zeros(nDeployments,max(dropout_vals));
+    for idx = 1:nDeployments
+        which_dropout(idx,:) = randperm(max(sensor_vals),max(dropout_vals));
+    end
+end
 
 % Define expected value of mi^2.
-E_mi_sqr = (1/12) * (upper_mi-lower_mi)^2 + 0.5*(lower_mi+upper_mi);
+E_mi_sqrd = (1/12) * (upper_mi-lower_mi)^2 + 0.5*(lower_mi+upper_mi);
 
-E_alpha_sqr = (upper_alpha^3 - lower_alpha^3)/(3*(upper_alpha-lower_alpha));
+E_alpha_sqrd = (upper_alpha^3 - lower_alpha^3)/(3*(upper_alpha-lower_alpha));
 E_alpha = (lower_alpha+upper_alpha)/2;
 E_t0 = (lower_t0+upper_t0)/2;
 
 % Define channel snr values.
-channel_snr = [0,5,10,15,20];
+channel_snr = 0:5:20;
 % Duplicate channel snr matrices for experiments.
 channel_db_values = repmat(channel_snr, length(selected_schemes), 1, length(agent_db_values));
 
@@ -145,7 +147,7 @@ alpha_weight_vals = [];
 sas_weighted_sum_crlb = zeros(length(alpha_weight_vals),length(agent_db_values),size(channel_db_values,2),n_params,length(selected_schemes),sensor_dimension,nDeployments);
 temp_legend = strings(1,length(alpha_weight_vals));
 
-if experiment == "cwe_disjoint_energy_opt"
+if experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
     for ii = 1:length(alpha_weight_vals)
        temp_legend(ii) = "w_{\alpha} = " + alpha_weight_vals(ii);
     end
@@ -223,7 +225,7 @@ for agent_db_idx = 1:length(agent_db_values)
             s0 = @(tau) (heaviside(tau)-heaviside(tau-1)) .* sin(pi .* tau);
             si = @(tau) mi .* s0(tau-ti);
 
-            if experiment == "cwe_disjoint_energy_opt"
+            if experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
                 disp("Computing energy constraint expressions...")
                 
                 %%% symbolic energy expressions
@@ -250,14 +252,22 @@ for agent_db_idx = 1:length(agent_db_values)
                 int_gamma_i = vect_int_gamma_i;
     
                 % constants for energy constraint calculation
-                C1i = E_alpha_sqr .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i;
+                C1i = E_alpha_sqrd .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i;
                 C2i = E_alpha .* mi.^2 .* int_Rs0;
-                
                 E_max = sum(C1i,2);
-                % individual_energy = C1i;
+
+                % omniscient assumption (hypothetical upper bound)
+                % C1i = alpha_true^2 .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i;
+                % C2i = alpha_true .* mi.^2 .* int_Rs0;
+                % E_max = sum(C1i,2);
+
+                % C1i_omniscient = alpha_true^2 .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i;
+                % C2i_omniscient = alpha_true .* mi.^2 .* int_Rs0;
+                % E_max_omniscient = sum(C1i_omniscient,2);
+
+                Ei_max = C1i;
             end
             
-    
             % Iterate through channel snr values.
             for channel_db_idx = 1:size(channel_db_values,2)
                 % Iterate through schemes.
@@ -274,16 +284,16 @@ for agent_db_idx = 1:length(agent_db_values)
                     % Define channel gains and server noise psd.
                     if scheme == "MPC"
                         ci = ones(size(gi));
-                        gamma_n = dt * Ps * E_mi_sqr / util_functions.db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
+                        gamma_n = dt * Ps * E_mi_sqrd / util_functions.db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
                     elseif scheme == "EPC"
                         ci = abs(gi);
-                        gamma_n = dt * Ps * E_mi_sqr * E_mag_g_sqr / util_functions.db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
+                        gamma_n = dt * Ps * E_mi_sqrd * E_mag_g_sqrd / util_functions.db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
                     elseif scheme == "PPC"
                         ci = qgi;
-                        gamma_n = dt * Ps * E_mi_sqr * E_mag_g_sqr / util_functions.db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
+                        gamma_n = dt * Ps * E_mi_sqrd * E_mag_g_sqrd / util_functions.db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
                     elseif scheme == "NPC"
                         ci = gi;
-                        gamma_n = Ps * E_mi_sqr * E_mag_g_sqr / util_functions.db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
+                        gamma_n = dt * Ps * E_mi_sqrd * E_mag_g_sqrd / util_functions.db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
                     end
 
                     % Apply dropout (by setting dropout sensor channels to
@@ -307,6 +317,12 @@ for agent_db_idx = 1:length(agent_db_values)
                     %%%%%%%%%%%%%%%%% OPTIMIZATION %%%%%%%%%%%%%%%%%
 
                     % Compute CRLB symbolically
+
+                    % There are slight gaps between previous
+                    % CRLB expressions and symbolic CRLB
+                    % expressions. Could be the case that the
+                    % symbolic expressions provide a more
+                    % accurate computation of the values.
                     if scheme == "EPC"
                         % define magnitude squared of FT of s0(t)
                         mag_sqr_S0 = @(w) 2*pi^2 .* util_functions.zeroIfnan((1 + cos(w)) ./ (w.^2 - pi^2).^2) + (w == pi) .* (pi^2/2);
@@ -322,21 +338,20 @@ for agent_db_idx = 1:length(agent_db_values)
                         t0_objective_array = @(ai) 1./( (alpha_true^2 .* (sum(ci .* ai .* mi.^2)).^2 / (2*pi)) .* integral(@(w) (w .* mag_sqr_S0(w)).^2 / V_arr(w,ai), -Inf, Inf, 'ArrayValued', true));
                         
                         % use these as objective function for optimization
-                        alpha_objective_indiv = @(x, dep_idx) 1./( ((sum(ci(:,:,:,dep_idx) .* x(1:max(sensor_vals)) .* mi(:,:,:,dep_idx).^2)).^2 / (2*pi)) .* integral(@(w) (mag_sqr_S0(w)).^2 / V_indiv(w, x(1:max(sensor_vals)), dep_idx), -Inf, Inf, 'ArrayValued', true));
-                        t0_objective_indiv = @(x, dep_idx, arb_alpha) 1./((arb_alpha^2 .* (sum(ci(:,:,:,dep_idx) .* x(1:max(sensor_vals)) .* mi(:,:,:,dep_idx).^2)).^2 / (2*pi)) .* integral(@(w) (w .* mag_sqr_S0(w)).^2 / V_indiv(w, x(1:max(sensor_vals)), dep_idx), -Inf, Inf, 'ArrayValued', true));
+                        eig_alpha_indiv = @(x, dep_idx) ( ((sum(ci(:,:,:,dep_idx) .* x(1:max(sensor_vals)) .* mi(:,:,:,dep_idx).^2)).^2 / (2*pi)) .* integral(@(w) (mag_sqr_S0(w)).^2 / V_indiv(w, x(1:max(sensor_vals)), dep_idx), -Inf, Inf, 'ArrayValued', true));
+                        eig_t0_indiv = @(x, dep_idx, arb_alpha) ((arb_alpha^2 .* (sum(ci(:,:,:,dep_idx) .* x(1:max(sensor_vals)) .* mi(:,:,:,dep_idx).^2)).^2 / (2*pi)) .* integral(@(w) (w .* mag_sqr_S0(w)).^2 / V_indiv(w, x(1:max(sensor_vals)), dep_idx), -Inf, Inf, 'ArrayValued', true));
                         
-                        % use these to compute fim
+                        alpha_objective_indiv = @(x, dep_idx) 1./eig_alpha_indiv(x, dep_idx);
+                        t0_objective_indiv = @(x, dep_idx, arb_alpha) 1./eig_t0_indiv(x, dep_idx, arb_alpha);
+                        
+                        % % use these to compute fim
                         % alpha_int = @(x) integral(@(w) (mag_sqr_S0(w)).^2 / V_arr(w,x(1:max(sensor_vals))), -Inf, Inf, 'ArrayValued', true);
                         % t0_int = @(x) alpha_true^2 .* integral(@(w) (w .* mag_sqr_S0(w)).^2 / V_arr(w,x(1:max(sensor_vals))), -Inf, Inf, 'ArrayValued', true);
                         % cross_int = @(x) alpha_true .* integral(@(w) w .* (mag_sqr_S0(w)).^2 / V_arr(w,x(1:max(sensor_vals))), -Inf, Inf, 'ArrayValued', true);
                         % fisher_mat = @(x) ((sum(ci .* x(1:max(sensor_vals)) .* mi.^2)).^2 / (2*pi)) .* [alpha_int(x) cross_int(x); cross_int(x) t0_int(x)];
-                        
-                        % There are slight gaps between previous
-                        % CRLB expressions and symbolic CRLB
-                        % expressions. Could be the case that the
-                        % symbolic expressions provide a more
-                        % accurate computation of the values.
-                        % inv_fisher_mat = pageinv(squeeze(fisher_mat(ones(1,10))));
+                        % 
+                        % fim = squeeze(fisher_mat(ones(1,10)));
+                        % inv_fim = pageinv(fim);
                         
                         % Compute baseline CRLB values
                         % crlb(1,agent_db_idx,channel_db_idx,1,scheme_idx,save_dim,:) = inv_fisher_mat(1,1,:);
@@ -348,13 +363,90 @@ for agent_db_idx = 1:length(agent_db_values)
                         if strat == "baseline"
                             % Set baseline strategy coefficients (ai = 1, bi = 0)
                             opt_coeffs(1,1:10,:) = 1;
+                            opt_coeffs(1,11:end,:) = 0;
+
                         elseif strat == "surr. approx."
-                            % compute optimal ai*
                             Ci_tilde = C1i - (C2i.^2)/T0;
-                            opt_ai = (1./ci) .* sqrt(E_max ./ sum(Ci_tilde ./ ci.^2, 2));
-                            opt_coeffs(strat_idx,1:10,:) = reshape(opt_ai, 1, S, nDeployments);
-                            opt_coeffs(strat_idx,11:end,:) = reshape(opt_ai .* C2i ./ T0, 1, S, nDeployments);
-                        else
+                            if experiment == "cwe_disjoint_sum_energy_opt"
+                                % compute optimal ai*
+                                opt_ai = (1./ci) .* sqrt(E_max ./ sum(Ci_tilde ./ ci.^2, 2));
+                                opt_coeffs(strat_idx,1:10,:) = reshape(opt_ai, 1, S, nDeployments);
+                                opt_coeffs(strat_idx,11:end,:) = reshape(opt_ai .* C2i ./ T0, 1, S, nDeployments);
+
+                                % elseif experiment == "cwe_disjoint_indiv_energy_opt"
+                                %     Ai = sqrt(Ei_max ./ Ci_tilde);
+                                %     qi = ci .* mi.^2;
+                                %     sign_qi = sign(qi);
+                                %
+                                %     % perform active-set optimization over each
+                                %     % deployment
+                                %     for dep_idx = 1:nDeployments
+                                %         sub_Ai = Ai(:,:,:,dep_idx);
+                                %         sub_ci = ci(:,:,:,dep_idx);
+                                %         sub_mi = mi(:,:,:,dep_idx);
+                                %         sub_qi = qi(:,:,:,dep_idx);
+                                %         sub_sign_qi = sign_qi(:,:,:,dep_idx);
+                                %
+                                %         F = 1:S;
+                                %         B = [];
+                                %         active_set_a = zeros(S,1);
+                                %
+                                %         while true
+                                %             % if isempty(B)
+                                %             %     QB = 0; DB = 0;
+                                %             % else
+                                %             %
+                                %             %     a_frak_B = DB ./ QB;
+                                %             % end
+                                %             %
+                                %
+                                %             MF = sum(sub_mi.^2, 2);
+                                %
+                                %             if isempty(B)
+                                %                 % First iteration: all free
+                                %                 % Pick maximal a_frak that
+                                %                 % satisfies constraints
+                                %                 a_frak_candidates = sub_Ai(F) .* abs(sub_ci(F));
+                                %                 a_frak = min(a_frak_candidates);       % first index to hit bound
+                                %             else
+                                %                 % Subsequent iterations: use stationary point
+                                %                 DB = sum(sub_ci(B).^2 .* sub_mi(B).^2 .* sub_Ai(B).^2, 2);
+                                %                 QB = sum(sub_qi(B) .* sub_sign_qi(B) .* sub_Ai(B), 2);
+                                %                 if QB ~= 0
+                                %
+                                %                     a_frak = DB / QB;
+                                %                 else
+                                %                     a_frak = 0;   % degenerate case: numerator contribution from saturated set zero
+                                %                 end
+                                %             end
+                                %
+                                %             % Compute candidate free a_i
+                                %             a_F = a_frak ./ sub_ci(F);
+                                %
+                                %             % Check bounds
+                                %             viol = (abs(a_F) > sub_Ai(F));
+                                %             if any(viol)
+                                %                 disp("Moving violated index")
+                                %                 % Move violated indices to saturated set
+                                %                 idx = F(viol);
+                                %                 B = [B idx];
+                                %                 F = setdiff(F, idx);
+                                %             else
+                                %                 % All free within bounds: assign and exit loop
+                                %                 active_set_a(F) = a_F;
+                                %                 break;
+                                %             end
+                                %         end
+                                %         active_set_a(B) = sub_sign_qi(B) .* sub_Ai(B);
+                                %
+                                %         a_star = active_set_a;
+                                %         b_star = (C2i(:,:,:,dep_idx) ./ T0)' .* active_set_a;
+                                %
+                                %         opt_coeffs(strat_idx,1:10,dep_idx) = reshape(a_star, 1, S);
+                                %         opt_coeffs(strat_idx,11:end,dep_idx) = reshape(b_star, 1, S);
+                                %     end
+                            end
+                        elseif strat == "w_{\alpha} = 1"
                             % Define parameters for fminsearch
                             num_vars = length(mi); % Number of variables
                             x0 = [ones(1,2*num_vars)]; % Initial guesses for ai, bi, and t
@@ -363,31 +455,33 @@ for agent_db_idx = 1:length(agent_db_values)
 
                             options = optimoptions('fmincon','Display','off','Algorithm','sqp');
                             total_opt_start = tic;
+                            pad_idx = num_strats - length(alpha_weight_vals);
 
                             if scheme == "EPC"
                                 for dep_idx = 1:nDeployments
                                     disp("Optimizing Deployment " + num2str(dep_idx))
                                     dep_opt_start = tic;
                                     sas_nonlcon = @(x) sas_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, E_max(:,:,:,dep_idx));
-                                    %%% weighted sum crlb
+
                                     % compute optimal ai and bi for sas using weighted sum objective function
                                     for jj = 1:length(alpha_weight_vals)
-
                                         alpha_weight = alpha_weight_vals(jj);
                                         t0_weight = 1 - alpha_weight;
 
                                         weighted_sum_objective = @(x) alpha_weight .* alpha_objective_indiv(x, dep_idx) + t0_weight .* t0_objective_indiv(x, dep_idx, 1);
+                                        % weighted_sum_objective = @(x) -(alpha_weight .* eig_alpha_indiv(x, dep_idx) + t0_weight .* eig_t0_indiv(x, dep_idx, 1));
                                         [weighted_sum_sas_x_opt, ~] = fmincon(weighted_sum_objective, x0, [], [], [], [], lb, ub, sas_nonlcon, options);
                                         % sas_weighted_sum_crlb(1,agent_db_idx,channel_db_idx,1,scheme_idx,save_dim,dep_idx,jj) = alpha_objective_indiv(weighted_sum_sas_x_opt, dep_idx);
                                         % sas_weighted_sum_crlb(1,agent_db_idx,channel_db_idx,2,scheme_idx,save_dim,dep_idx,jj) = t0_objective_indiv(weighted_sum_sas_x_opt, dep_idx, alpha_true);
-                                        opt_coeffs(1+jj,:,dep_idx) = weighted_sum_sas_x_opt;
+                                        opt_coeffs(pad_idx+jj,:,dep_idx) = weighted_sum_sas_x_opt;
                                     end
                                     dep_opt_time = toc(dep_opt_start);
                                     disp("Deployment " + num2str(dep_idx) + ": " + floor(dep_opt_time/60) + " minutes " + mod(dep_opt_time,60) + " seconds")
                                 end
                             end
+
                             total_opt_time = toc(total_opt_start);
-                            disp("Total optimization time: " + floor(total_opt_time/60) + " minutes " + mod(total_opt_time,60) + " seconds")
+                            disp("Total fmincon time: " + floor(total_opt_time/60) + " minutes " + mod(total_opt_time,60) + " seconds")
                         end
                     end
 
@@ -395,12 +489,15 @@ for agent_db_idx = 1:length(agent_db_values)
                     %%
                     for strat_idx = 1:num_strats
                         strat = all_strats(strat_idx);
+                        %%% TODO: may want to address dimensions for
+                        %%% convenience in the future
                         ai = opt_coeffs(strat_idx, 1:S, :);
                         bi = opt_coeffs(strat_idx, max(sensor_vals)+1:max(sensor_vals)+S, :);
                         
                         % Find peak index from noisy channel-weighted sum (cws).
                         [cws, ui] = util_functions.matched_filter_integral(reshape(util_functions.unsqueeze(ai,3) .* xi,K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-ti-tpi-three_dim_t), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt);
                         ui = squeeze(ui); % dims = S x K x Trials x Deps
+                        % avg_dep_E_max = mean(sum(sum(ui.^2,2)*dt,1),3);
                         cws = reshape(cws,1,K,nTrials,nDeployments);
 
                         % Generate y(t).
@@ -422,7 +519,7 @@ for agent_db_idx = 1:length(agent_db_values)
 
                         % Set t0 estimates to true or estimated values depending on
                         % experiment.
-                        if experiment == "cwe_disjoint" || experiment == "nae_disjoint" || experiment == "cwe_disjoint_energy_opt"
+                        if experiment == "cwe_disjoint" || experiment == "nae_disjoint" || experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
                             t0_estimates = t0_true*ones(1,1,nTrials,nDeployments);
                         else
                             t0_estimates = t0_estimates_for_plot;
@@ -648,7 +745,7 @@ for agent_db_idx = 1:length(agent_db_values)
                                 % my_var(1,agent_db_idx,channel_db_idx,1,scheme_idx,save_dim,:) = (sum(real(channel_gains).^2 .* Ei,2) .* scaled_w_psd_constant + n_psd_function_td/2 ) ./ (sum(real(channel_gains).*Ei,2).^2);
 
                                 % Compute AC-CWE CRLBs for partial or no phase compensation
-                            elseif exp_split(1) == "cwe"
+                            elseif exp_split(1) == "cwe" || experiment == "random_dropout"
                                 if (scheme == "PPC" || scheme == "NPC")
 
                                     % Compute decorrelated derivative expressions for alpha.
@@ -725,7 +822,7 @@ end
 %     files_to_save = ["avg_dep_var", "avg_dep_mse", "avg_dep_bias", "avg_dep_crlb",...
 %         "agent_db_values", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
 %         "experiment","exp_split","sensor_dimension"];
-%     if experiment == "cwe_disjoint_energy_opt"
+%     if experiment == "cwe_disjoint_sum_energy_opt"
 %         files_to_save = [files_to_save, "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals"];
 %     end
 %     save(experiment + "_results.mat", files_to_save{:})
@@ -772,7 +869,7 @@ if experiment ~= "cwe_joint_grid"
                 end
                 
                 % Plot pseudoplots for legend symbols.
-                if experiment == "cwe_disjoint_energy_opt"
+                if experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
                     for count_idx = 1:length(all_strats)
                         plot(nan,nan,'color',color_vec(count_idx),'LineWidth',2);
                     end
@@ -795,7 +892,8 @@ if experiment ~= "cwe_joint_grid"
                         plot(x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',color_vec(strat_idx),'LineWidth', 1)
                         plot(x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',color_vec(strat_idx),'LineWidth', 1)
                     end
-                    plot(x_axis_series,(squeeze(avg_dep_old_crlb(:,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',color_vec(3),'LineWidth', 1)
+                    % % plot non-symbolic crlb to validate symbolic results
+                    % plot(x_axis_series,(squeeze(avg_dep_old_crlb(:,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',color_vec(3),'LineWidth', 1)
                 end
 
                 xlabel('Channel SNR (dB)')
@@ -809,8 +907,9 @@ if experiment ~= "cwe_joint_grid"
                 if true % scheme == "MPC"
                     if experiment == "random_dropout"
                         legend(["Drop = " + dropout_vals,"VAR","MSE","CRLB"], 'Location', 'best')
-                    elseif experiment == "cwe_disjoint_energy_opt"
-                        legend([all_strats,"VAR","MSE","CRLB"], 'Location', 'best')
+                    elseif experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
+                        % legend([all_strats,"VAR","MSE","CRLB"], 'Location', 'best')
+                        legend(["baseline", "surr. approx", "fmincon", "VAR", "MSE", "CRLB"], 'Location', 'best')
                     else
                         legend(["S = " + sensor_vals,"VAR","MSE","CRLB"], 'Location', 'best')
                     end
@@ -960,9 +1059,10 @@ function [c, ceq] = sas_constraints(x, C1i, C2i, T0, E_max)
    ind_power_const = C1i;
    ind_power_vals = ai.^2 .* C1i - 2 .* ai .* bi .* C2i + bi.^2 .* T0;
    % First constraint: sum(ai.^2 .* C1i - 2 .* ai .* bi .* C2i + bi.^2 .* T0) <= E_max
-   c1 = sum(ind_power_vals) - 0.8*E_max;
-   c_ind = (ind_power_vals-ind_power_const)';
-   c = [c1;c_ind];
+   c1 = sum(ind_power_vals) - E_max;
+   % c_ind = (ind_power_vals-ind_power_const)';
+   % c = [c1;c_ind];
+   c = [c1];
    ceq = [];
 end
     
