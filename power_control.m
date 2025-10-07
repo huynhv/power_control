@@ -11,8 +11,8 @@ rng(seed);
 % Choose which experiment to run.
 
 experiment_list = ["nae_disjoint", "nae_joint", "cwe_disjoint", "cwe_joint", "cwe_joint_grid", "random_dropout", ...
-    "nae_joint_imperfect_tpi", "cwe_joint_imperfect_tpi", "cwe_disjoint_sum_energy_opt, cwe_disjoint_indiv_energy_opt"];
-experiment = "cwe_disjoint_sum_energy_opt";
+    "nae_joint_imperfect_tpi", "cwe_joint_imperfect_tpi", "cwe_disjoint_energy_opt"];
+experiment = "cwe_disjoint_energy_opt";
 save_images = false;
 
 % Set number of deployments.
@@ -34,7 +34,7 @@ else
     if experiment == "cwe_joint_grid"
         sensor_vals = [5];
         agent_db_values = [0,5,10,15,20];
-    elseif experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
+    elseif experiment == "cwe_disjoint_energy_opt"
         sensor_vals = [10];
         agent_db_values = [0];
     else
@@ -143,22 +143,23 @@ channel_snr = 0:5:20;
 % Duplicate channel snr matrices for experiments.
 channel_db_values = repmat(channel_snr, length(selected_schemes), 1, length(agent_db_values));
 
-alpha_weight_vals = [];
-sas_weighted_sum_crlb = zeros(length(alpha_weight_vals),length(agent_db_values),size(channel_db_values,2),n_params,length(selected_schemes),sensor_dimension,nDeployments);
+alpha_weight_vals = [0.5];
+% sas_weighted_sum_crlb = zeros(length(alpha_weight_vals),length(agent_db_values),size(channel_db_values,2),n_params,length(selected_schemes),sensor_dimension,nDeployments);
 temp_legend = strings(1,length(alpha_weight_vals));
 
-if experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
-    for ii = 1:length(alpha_weight_vals)
-       temp_legend(ii) = "w_{\alpha} = " + alpha_weight_vals(ii);
-    end
-    all_strats = ["baseline", "surr. approx.", temp_legend];
-else
-    all_strats = ["baseline"];
+if experiment == "cwe_disjoint_energy_opt"
+    all_strats = ["baseline", "sum surr. approx.", "sum fmincon"];
+%     for ii = 1:length(alpha_weight_vals)
+%        temp_legend(ii) = "w_{\alpha} = " + alpha_weight_vals(ii);
+%     end
+%     all_strats = ["baseline", "sum surr. approx.", "indiv. surr. approx.", temp_legend];
+% else
+%     all_strats = ["baseline"];
 end
 
 num_strats = length(all_strats);
 
-opt_coeffs = zeros(num_strats,2*max(sensor_vals),nDeployments);
+opt_coeffs = zeros(num_strats,2*max(sensor_vals),1,nDeployments);
 
 % Initialize empty matrices for crlb, variance, mse, and bias. The parameters
 % are organized such that alpha is index 1, t0 is index 2. The dimensions of
@@ -225,7 +226,7 @@ for agent_db_idx = 1:length(agent_db_values)
             s0 = @(tau) (heaviside(tau)-heaviside(tau-1)) .* sin(pi .* tau);
             si = @(tau) mi .* s0(tau-ti);
 
-            if experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
+            if experiment == "cwe_disjoint_energy_opt"
                 disp("Computing energy constraint expressions...")
                 
                 %%% symbolic energy expressions
@@ -239,6 +240,8 @@ for agent_db_idx = 1:length(agent_db_values)
                 % symb_int_gamma_i = integral(@(t) integral(@(tau) si(tau-t).^2, 0, T0, 'ArrayValued', true), 0, T0, 'ArrayValued', true);
                 % int_gamma_i = symb_int_gamma_i;
 
+                % verified that vector energy expressions provided very
+                % close approximation to symoblic expressions
                 %%% vector energy expressions
                 vect_Rs0 = pagemtimes(s0(t-t0_true)', s0(t-three_dim_t)) * dt;
                 vect_int_Rs0 = sum(vect_Rs0) * dt;
@@ -256,14 +259,10 @@ for agent_db_idx = 1:length(agent_db_values)
                 C2i = E_alpha .* mi.^2 .* int_Rs0;
                 E_max = sum(C1i,2);
 
-                % omniscient assumption (hypothetical upper bound)
+                % omniscient assumption (hypothetical upper bound on energy)
                 % C1i = alpha_true^2 .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i;
                 % C2i = alpha_true .* mi.^2 .* int_Rs0;
                 % E_max = sum(C1i,2);
-
-                % C1i_omniscient = alpha_true^2 .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i;
-                % C2i_omniscient = alpha_true .* mi.^2 .* int_Rs0;
-                % E_max_omniscient = sum(C1i_omniscient,2);
 
                 Ei_max = C1i;
             end
@@ -314,7 +313,7 @@ for agent_db_idx = 1:length(agent_db_values)
                     n_psd_function_td = gamma_n/dt;
                     scaled_n_psd_constant = gamma_n * n_psd_constant;
 
-                    %%%%%%%%%%%%%%%%% OPTIMIZATION %%%%%%%%%%%%%%%%%
+                    %% Optimization
 
                     % Compute CRLB symbolically
 
@@ -362,122 +361,114 @@ for agent_db_idx = 1:length(agent_db_values)
                         strat = all_strats(strat_idx);
                         if strat == "baseline"
                             % Set baseline strategy coefficients (ai = 1, bi = 0)
-                            opt_coeffs(1,1:10,:) = 1;
-                            opt_coeffs(1,11:end,:) = 0;
+                            opt_coeffs(1,1:S,:,:) = 1;
+                            opt_coeffs(1,S+1:end,:,:) = 0;
 
-                        elseif strat == "surr. approx."
+                        elseif strat == "sum surr. approx."
                             Ci_tilde = C1i - (C2i.^2)/T0;
-                            if experiment == "cwe_disjoint_sum_energy_opt"
-                                % compute optimal ai*
-                                opt_ai = (1./ci) .* sqrt(E_max ./ sum(Ci_tilde ./ ci.^2, 2));
-                                opt_coeffs(strat_idx,1:10,:) = reshape(opt_ai, 1, S, nDeployments);
-                                opt_coeffs(strat_idx,11:end,:) = reshape(opt_ai .* C2i ./ T0, 1, S, nDeployments);
 
-                                % elseif experiment == "cwe_disjoint_indiv_energy_opt"
-                                %     Ai = sqrt(Ei_max ./ Ci_tilde);
-                                %     qi = ci .* mi.^2;
-                                %     sign_qi = sign(qi);
-                                %
-                                %     % perform active-set optimization over each
-                                %     % deployment
-                                %     for dep_idx = 1:nDeployments
-                                %         sub_Ai = Ai(:,:,:,dep_idx);
-                                %         sub_ci = ci(:,:,:,dep_idx);
-                                %         sub_mi = mi(:,:,:,dep_idx);
-                                %         sub_qi = qi(:,:,:,dep_idx);
-                                %         sub_sign_qi = sign_qi(:,:,:,dep_idx);
-                                %
-                                %         F = 1:S;
-                                %         B = [];
-                                %         active_set_a = zeros(S,1);
-                                %
-                                %         while true
-                                %             % if isempty(B)
-                                %             %     QB = 0; DB = 0;
-                                %             % else
-                                %             %
-                                %             %     a_frak_B = DB ./ QB;
-                                %             % end
-                                %             %
-                                %
-                                %             MF = sum(sub_mi.^2, 2);
-                                %
-                                %             if isempty(B)
-                                %                 % First iteration: all free
-                                %                 % Pick maximal a_frak that
-                                %                 % satisfies constraints
-                                %                 a_frak_candidates = sub_Ai(F) .* abs(sub_ci(F));
-                                %                 a_frak = min(a_frak_candidates);       % first index to hit bound
-                                %             else
-                                %                 % Subsequent iterations: use stationary point
-                                %                 DB = sum(sub_ci(B).^2 .* sub_mi(B).^2 .* sub_Ai(B).^2, 2);
-                                %                 QB = sum(sub_qi(B) .* sub_sign_qi(B) .* sub_Ai(B), 2);
-                                %                 if QB ~= 0
-                                %
-                                %                     a_frak = DB / QB;
-                                %                 else
-                                %                     a_frak = 0;   % degenerate case: numerator contribution from saturated set zero
-                                %                 end
-                                %             end
-                                %
-                                %             % Compute candidate free a_i
-                                %             a_F = a_frak ./ sub_ci(F);
-                                %
-                                %             % Check bounds
-                                %             viol = (abs(a_F) > sub_Ai(F));
-                                %             if any(viol)
-                                %                 disp("Moving violated index")
-                                %                 % Move violated indices to saturated set
-                                %                 idx = F(viol);
-                                %                 B = [B idx];
-                                %                 F = setdiff(F, idx);
-                                %             else
-                                %                 % All free within bounds: assign and exit loop
-                                %                 active_set_a(F) = a_F;
-                                %                 break;
-                                %             end
-                                %         end
-                                %         active_set_a(B) = sub_sign_qi(B) .* sub_Ai(B);
-                                %
-                                %         a_star = active_set_a;
-                                %         b_star = (C2i(:,:,:,dep_idx) ./ T0)' .* active_set_a;
-                                %
-                                %         opt_coeffs(strat_idx,1:10,dep_idx) = reshape(a_star, 1, S);
-                                %         opt_coeffs(strat_idx,11:end,dep_idx) = reshape(b_star, 1, S);
-                                %     end
+                            % compute optimal ai*
+                            opt_ai = (1./ci) .* sqrt(E_max ./ sum(Ci_tilde ./ ci.^2, 2));
+                            opt_coeffs(strat_idx,1:S,:,:) = opt_ai; %reshape(opt_ai, 1, S, nDeployments);
+                            opt_coeffs(strat_idx,S+1:end,:,:) = opt_ai .* C2i ./ T0; %reshape(opt_ai .* C2i ./ T0, 1, S, nDeployments);
+                        elseif strat == "indiv. surr. approx."
+                            Ci_tilde = C1i - (C2i.^2)/T0;
+
+                            Ai = sqrt(Ei_max ./ Ci_tilde);
+                            qi = ci .* mi.^2;
+                            sign_qi = sign(qi);
+
+                            % perform active-set optimization over each
+                            % deployment
+                            for dep_idx = 1:nDeployments
+                                sub_Ai = Ai(:,:,:,dep_idx);
+                                sub_ci = ci(:,:,:,dep_idx);
+                                sub_mi = mi(:,:,:,dep_idx);
+                                sub_qi = qi(:,:,:,dep_idx);
+                                sub_sign_qi = sign_qi(:,:,:,dep_idx);
+
+                                F = 1:S;
+                                B = [];
+                                active_set_a = zeros(1,S);
+
+                                while true
+                                    if isempty(B)
+                                        % First iteration: all free
+                                        % Pick maximal a_frak that
+                                        % satisfies constraints
+                                        a_frak_candidates = sub_Ai(F) .* abs(sub_ci(F));
+                                        a_frak = min(a_frak_candidates);       % first index to hit bound
+                                    else
+                                        % Subsequent iterations: use stationary point
+                                        DB = sum(sub_ci(B).^2 .* sub_mi(B).^2 .* sub_Ai(B).^2, 2);
+                                        QB = sum(sub_qi(B) .* sub_sign_qi(B) .* sub_Ai(B), 2);
+                                        if QB ~= 0
+
+                                            a_frak = DB / QB;
+                                        else
+                                            a_frak = 0;   % degenerate case: numerator contribution from saturated set zero
+                                        end
+                                    end
+
+                                    % Compute candidate free a_i
+                                    a_F = a_frak ./ sub_ci(F);
+
+                                    % Check bounds, using >= to account for
+                                    % a_frak iteration 0
+                                    viol = (abs(a_F) >= sub_Ai(F));
+                                    if any(viol)
+                                        % Move violated indices to saturated set
+                                        idx = F(viol);
+                                        B = [B idx];
+                                        F = setdiff(F, idx);
+                                        % disp("Moving violated index")
+                                        % disp(idx)
+                                    else
+                                        % All free within bounds: assign and exit loop
+                                        active_set_a(F) = a_F;
+                                        break;
+                                    end
+                                end
+                                active_set_a(B) = sub_sign_qi(B) .* sub_Ai(B);
+
+                                a_star = active_set_a;
+                                b_star = (C2i(:,:,:,dep_idx) ./ T0) .* active_set_a;
+
+                                opt_coeffs(strat_idx,1:10,:,dep_idx) = a_star;
+                                opt_coeffs(strat_idx,11:end,:,dep_idx) = b_star;
                             end
-                        elseif strat == "w_{\alpha} = 1"
+
+                        elseif strat == "sum fmincon" || strat == "indiv. fmincon"
                             % Define parameters for fminsearch
                             num_vars = length(mi); % Number of variables
-                            x0 = [ones(1,2*num_vars)]; % Initial guesses for ai, bi, and t
-                            lb = zeros(1,2*num_vars); % ai, bi >= 0
+                            x0 = [ones(1,num_vars)]; % Initial guesses for ai
+                            lb = zeros(1,num_vars); % ai >= 0
                             ub = []; % unrestricted
 
                             options = optimoptions('fmincon','Display','off','Algorithm','sqp');
                             total_opt_start = tic;
-                            pad_idx = num_strats - length(alpha_weight_vals);
 
-                            if scheme == "EPC"
-                                for dep_idx = 1:nDeployments
-                                    disp("Optimizing Deployment " + num2str(dep_idx))
-                                    dep_opt_start = tic;
-                                    sas_nonlcon = @(x) sas_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, E_max(:,:,:,dep_idx));
+                            for dep_idx = 1:nDeployments
+                                disp("Optimizing Deployment " + num2str(dep_idx))
+                                dep_opt_start = tic;
+                                sas_nonlcon = @(x) sas_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, E_max(:,:,:,dep_idx));
 
-                                    % compute optimal ai and bi for sas using weighted sum objective function
-                                    for jj = 1:length(alpha_weight_vals)
-                                        alpha_weight = alpha_weight_vals(jj);
-                                        t0_weight = 1 - alpha_weight;
+                                % compute optimal ai and bi for sas using weighted sum objective function
+                                for jj = 1:length(alpha_weight_vals)
+                                    alpha_weight = alpha_weight_vals(jj);
+                                    t0_weight = 1 - alpha_weight;
 
-                                        weighted_sum_objective = @(x) alpha_weight .* alpha_objective_indiv(x, dep_idx) + t0_weight .* t0_objective_indiv(x, dep_idx, 1);
-                                        % weighted_sum_objective = @(x) -(alpha_weight .* eig_alpha_indiv(x, dep_idx) + t0_weight .* eig_t0_indiv(x, dep_idx, 1));
-                                        [weighted_sum_sas_x_opt, ~] = fmincon(weighted_sum_objective, x0, [], [], [], [], lb, ub, sas_nonlcon, options);
-                                        % sas_weighted_sum_crlb(1,agent_db_idx,channel_db_idx,1,scheme_idx,save_dim,dep_idx,jj) = alpha_objective_indiv(weighted_sum_sas_x_opt, dep_idx);
-                                        % sas_weighted_sum_crlb(1,agent_db_idx,channel_db_idx,2,scheme_idx,save_dim,dep_idx,jj) = t0_objective_indiv(weighted_sum_sas_x_opt, dep_idx, alpha_true);
-                                        opt_coeffs(pad_idx+jj,:,dep_idx) = weighted_sum_sas_x_opt;
-                                    end
-                                    dep_opt_time = toc(dep_opt_start);
-                                    disp("Deployment " + num2str(dep_idx) + ": " + floor(dep_opt_time/60) + " minutes " + mod(dep_opt_time,60) + " seconds")
+                                    weighted_sum_objective = @(x) alpha_weight .* alpha_objective_indiv(x, dep_idx) + t0_weight .* t0_objective_indiv(x, dep_idx, 1);
+                                    % weighted_sum_objective = @(x) -(alpha_weight .* eig_alpha_indiv(x, dep_idx) + t0_weight .* eig_t0_indiv(x, dep_idx, 1));
+                                    
+                                    [weighted_sum_sas_x_opt, ~] = fmincon(weighted_sum_objective, x0, [], [], [], [], lb, ub, sas_nonlcon, options);
+                                    % store ai
+                                    opt_coeffs(strat_idx,1:S,:,dep_idx) = weighted_sum_sas_x_opt;
+                                    % recompute bi coefficients
+                                    opt_coeffs(strat_idx,S+1:end,:,dep_idx) = opt_coeffs(strat_idx,1:10,:,dep_idx) .* C2i(:,:,:,dep_idx) ./ T0;
                                 end
+                                dep_opt_time = toc(dep_opt_start);
+                                disp("Deployment " + num2str(dep_idx) + ": " + floor(dep_opt_time/60) + " minutes " + mod(dep_opt_time,60) + " seconds")
                             end
 
                             total_opt_time = toc(total_opt_start);
@@ -485,23 +476,26 @@ for agent_db_idx = 1:length(agent_db_values)
                         end
                     end
 
-                    %%%%%%%%%%%%%%%%% ESTIMATION %%%%%%%%%%%%%%%%%
-                    %%
+                    %% Estimation
                     for strat_idx = 1:num_strats
                         strat = all_strats(strat_idx);
-                        %%% TODO: may want to address dimensions for
-                        %%% convenience in the future
-                        ai = opt_coeffs(strat_idx, 1:S, :);
-                        bi = opt_coeffs(strat_idx, max(sensor_vals)+1:max(sensor_vals)+S, :);
+                        ai = opt_coeffs(strat_idx, 1:S, :, :);
+                        bi = opt_coeffs(strat_idx, S+1:end, :, :);
                         
+                        if strat == "sum surr. approx."
+                            kappa_ai = (sum(ci .* ai .* mi.^2)).^2;
+                            xi_ai = sum(ci.^2 .* ai.^2 .* mi.^2);
+                            % disp("Ratio N0/4 / xi_ai: " + num2str(mean(scaled_n_psd_constant ./ xi_ai)));
+                        end
+
                         % Find peak index from noisy channel-weighted sum (cws).
-                        [cws, ui] = util_functions.matched_filter_integral(reshape(util_functions.unsqueeze(ai,3) .* xi,K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-ti-tpi-three_dim_t), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt);
+                        [cws, ui] = util_functions.matched_filter_integral(reshape(ai .* xi,K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-ti-tpi-three_dim_t), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt);
                         ui = squeeze(ui); % dims = S x K x Trials x Deps
                         % avg_dep_E_max = mean(sum(sum(ui.^2,2)*dt,1),3);
                         cws = reshape(cws,1,K,nTrials,nDeployments);
 
                         % Generate y(t).
-                        y = cws - sum(ci .* util_functions.unsqueeze(bi,3), 2) + pagetranspose(scaled_n);
+                        y = cws - sum(ci .* bi, 2) + pagetranspose(scaled_n);
 
                         % Search for t0 from index 1 to index of t0_max/dt + 1.
                         % Since we know a priori that the estimate of t0 cannot
@@ -519,7 +513,7 @@ for agent_db_idx = 1:length(agent_db_values)
 
                         % Set t0 estimates to true or estimated values depending on
                         % experiment.
-                        if experiment == "cwe_disjoint" || experiment == "nae_disjoint" || experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
+                        if experiment == "cwe_disjoint" || experiment == "nae_disjoint" || experiment == "cwe_disjoint_energy_opt"
                             t0_estimates = t0_true*ones(1,1,nTrials,nDeployments);
                         else
                             t0_estimates = t0_estimates_for_plot;
@@ -675,7 +669,7 @@ for agent_db_idx = 1:length(agent_db_values)
                                 % Compute AC-CWE estimates for full phase compensation.
                             else
                                 % Define coefficients in V(w).
-                                Beta = 2 * pi^2 * sum(ci.^2 .* util_functions.unsqueeze(ai,3).^2 .* mi.^2, 2);
+                                Beta = 2 * pi^2 * sum(ci.^2 .* ai.^2 .* mi.^2, 2);
                                 C1 = Beta .* scaled_w_psd_constant;
                                 C2 = scaled_n_psd_constant/2;
 
@@ -695,9 +689,9 @@ for agent_db_idx = 1:length(agent_db_values)
 
                                 % Get time domain matrix for Qn.
                                 [~,Qn_matrix] = util_functions.get_time_domain(mag_sqr_H,dt,nDeployments);
-                                [Omega, ~] = util_functions.matched_filter_integral(reshape(util_functions.unsqueeze(ai,3) .* mi .* util_functions.sensor_signal(t-ti-t0_estimates),K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-ti-three_dim_t), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt);
+                                [Omega, ~] = util_functions.matched_filter_integral(reshape(ai .* mi .* util_functions.sensor_signal(t-ti-t0_estimates),K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-ti-three_dim_t), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt);
 
-                                num = dt*dt*pagemtimes(pagemtimes(real(y) + sum(ci .* util_functions.unsqueeze(bi,3), 2), reshape(Qn_matrix,length(t),length(t),1,nDeployments)), pagetranspose(reshape(Omega,1,length(t),nTrials,nDeployments)));
+                                num = dt*dt*pagemtimes(pagemtimes(real(y) + sum(ci .* bi, 2), reshape(Qn_matrix,length(t),length(t),1,nDeployments)), pagetranspose(reshape(Omega,1,length(t),nTrials,nDeployments)));
                                 denom = dt*dt*pagemtimes(pagemtimes(reshape(Omega,1,length(t),nTrials,nDeployments),reshape(Qn_matrix,length(t),length(t),1,nDeployments)),pagetranspose(reshape(Omega,1,length(t),nTrials,nDeployments)));
                             end
                             alpha_estimates = num ./ denom;
@@ -822,7 +816,7 @@ end
 %     files_to_save = ["avg_dep_var", "avg_dep_mse", "avg_dep_bias", "avg_dep_crlb",...
 %         "agent_db_values", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
 %         "experiment","exp_split","sensor_dimension"];
-%     if experiment == "cwe_disjoint_sum_energy_opt"
+%     if experiment == "cwe_disjoint_energy_opt"
 %         files_to_save = [files_to_save, "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals"];
 %     end
 %     save(experiment + "_results.mat", files_to_save{:})
@@ -869,7 +863,7 @@ if experiment ~= "cwe_joint_grid"
                 end
                 
                 % Plot pseudoplots for legend symbols.
-                if experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
+                if experiment == "cwe_disjoint_energy_opt"
                     for count_idx = 1:length(all_strats)
                         plot(nan,nan,'color',color_vec(count_idx),'LineWidth',2);
                     end
@@ -907,7 +901,7 @@ if experiment ~= "cwe_joint_grid"
                 if true % scheme == "MPC"
                     if experiment == "random_dropout"
                         legend(["Drop = " + dropout_vals,"VAR","MSE","CRLB"], 'Location', 'best')
-                    elseif experiment == "cwe_disjoint_sum_energy_opt" || experiment == "cwe_disjoint_indiv_energy_opt"
+                    elseif experiment == "cwe_disjoint_energy_opt"
                         % legend([all_strats,"VAR","MSE","CRLB"], 'Location', 'best')
                         legend(["baseline", "surr. approx", "fmincon", "VAR", "MSE", "CRLB"], 'Location', 'best')
                     else
@@ -1054,15 +1048,22 @@ end
 %% Functions
 function [c, ceq] = sas_constraints(x, C1i, C2i, T0, E_max)
    num_vars = length(C1i);
-   ai = x(1:num_vars);
-   bi = x(num_vars+1:end);
-   ind_power_const = C1i;
-   ind_power_vals = ai.^2 .* C1i - 2 .* ai .* bi .* C2i + bi.^2 .* T0;
+   ai = x; %(1:num_vars);
+   % bi = x(num_vars+1:end);
+   % ind_power_const = C1i;
+   % ind_power_vals = ai.^2 .* C1i - 2 .* ai .* bi .* C2i + bi.^2 .* T0;
+   
+   
    % First constraint: sum(ai.^2 .* C1i - 2 .* ai .* bi .* C2i + bi.^2 .* T0) <= E_max
-   c1 = sum(ind_power_vals) - E_max;
-   % c_ind = (ind_power_vals-ind_power_const)';
+   % sum_cond = sum(ind_power_vals) - E_max;
+   % indiv_cond = (ind_power_vals-ind_power_const)';
+
+   % Simplified constraint
+   simplified_ind_power_vals = ai.^2 .* (C1i - (C2i.^2 ./ T0));
+   simplified_sum_cond = sum(simplified_ind_power_vals) - E_max;
+
    % c = [c1;c_ind];
-   c = [c1];
+   c = [simplified_sum_cond];
    ceq = [];
 end
     
