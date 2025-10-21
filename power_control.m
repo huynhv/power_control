@@ -16,9 +16,9 @@ experiment = "cwe_disjoint_energy_opt";
 save_images = false;
 
 % Set number of deployments.
-nDeployments = 5;
+nDeployments = 30;
 % Set number of trials.
-nTrials = 1000; % do not change this
+nTrials = 500; % do not change this
 % Set number of sample points. The sample index starts at 0 so
 % K = 1 + number of sampling points
 K = 201;
@@ -35,7 +35,7 @@ else
         sensor_vals = [5];
         agent_db_values = [0,5,10,15,20];
     elseif experiment == "cwe_disjoint_energy_opt"
-        sensor_vals = [50]; %%%%% gotta investigate the difference in the plots
+        sensor_vals = [10]; %%%%% gotta investigate the difference in the plots
         agent_db_values = [0];
     else
         sensor_vals = [5,10];
@@ -69,7 +69,7 @@ t0_true = 1;
 
 % Calculate the signal energy (such that the signal is assumed to be within the
 % interioir fo the observation period).
-func = @(t) abs(util_functions.sensor_signal(t)).^2;
+func = @(t) abs(util_functions.sensor_signal(t, Ts)).^2;
 Ps = integral(func,0,T0)/T0;
 
 % Define range for distribution of mi and ti (tau_i)
@@ -83,7 +83,6 @@ lower_ti = 0;
 % how many sample the error may shift the peak
 if contains(experiment, "imperfect_tpi")
     upper_tpi = 0.02;
-    
 else
     upper_tpi = 0;
 end
@@ -156,7 +155,10 @@ alpha_weight_vals = [0.5];
 temp_legend = strings(1,length(alpha_weight_vals));
 
 if experiment == "cwe_disjoint_energy_opt"
-    all_strats = ["baseline", "sum surr. approx.", "sum fmincon"];%, "indiv. surr. approx.", "indiv. fmincon", "mixed D=0.5 fmincon"];
+    % We can that sc solution are subset of scsh solutions. Therefore using 
+    % scsh is a catchall so no need to consider sc separately.
+    all_strats = ["sum baseline", "scsh sum surr. approx."]; % , "scsh sum fmincon"
+    % all_strats = ["indiv. baseline", "indiv. surr. approx.", "indiv. fmincon"];
 end
 
 num_strats = length(all_strats);
@@ -224,13 +226,13 @@ for agent_db_idx = 1:length(agent_db_values)
             [qgi,~] = util_functions.quantize_comp(gi,M);
 
             % Generate si(t-t0).
-            si_true = mi .* util_functions.sensor_signal(t - ti - t0_true); % K x S
+            si_true = mi .* util_functions.sensor_signal(t-ti-t0_true, Ts); % K x S
             % Generate xi(t).
             xi = alpha_true * si_true + scaled_w(:,1:S,:,:); % K x S x nTrials x nDeployments
             % Compute Ei.
             Ei = sum(abs(si_true).^2 .* dt,1); % 1 x S
 
-            unified_xi = alpha_true .* (mi .* util_functions.sensor_signal(t - t0_true)) + scaled_w(:,1:S,:,:);
+            unified_xi = alpha_true .* (mi .* util_functions.sensor_signal(t-t0_true, Ts)) + scaled_w(:,1:S,:,:);
 
             % Define symbolic expressions
             s0 = @(tau) (heaviside(tau)-heaviside(tau-1)) .* sin(pi .* tau);
@@ -276,15 +278,17 @@ for agent_db_idx = 1:length(agent_db_values)
                 Ei_max = approx_C1i;
 
                 % omniscient assumption (hypothetical upper bound on energy)
-                % omni_C1i = alpha_true^2 .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i;
-                % omni_C2i = alpha_true .* mi.^2 .* int_Rs0;
-                % omni_E_max = sum(omni_C1i,2);
-                % omni_Ei_max = omni_C1i;
+                omni_C1i = alpha_true^2 .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i;
+                omni_C2i = alpha_true .* mi.^2 .* int_Rs0;
+                omni_E_max = sum(omni_C1i,2);
+                omni_Ei_max = omni_C1i;
 
                 % C1i = omni_C1i;
                 % C2i = omni_C2i;
                 % E_max = omni_E_max;
                 % Ei_max = omni_C1i;
+
+                approx_to_omni_scale_factor = approx_E_max ./ omni_E_max;
             end
 
             % Iterate through channel snr values.
@@ -371,25 +375,29 @@ for agent_db_idx = 1:length(agent_db_values)
                         % fim = squeeze(fisher_mat(ones(1,10)));
                         % inv_fim = pageinv(fim);
 
-                        % Compute baseline CRLB values
+                        % Compute CRLB values
                         % crlb(1,agent_db_idx,channel_db_idx,1,scheme_idx,save_dim,:) = inv_fisher_mat(1,1,:);
                         % crlb(1,agent_db_idx,channel_db_idx,2,scheme_idx,save_dim,:) = inv_fisher_mat(2,2,:);
                     end
 
                     for strat_idx = 1:num_strats
                         strat = all_strats(strat_idx);
-                        if strat == "baseline"
-                            % Set baseline strategy coefficients (ai = 1, bi = 0)
-                            opt_coeffs(1,1:S,:,:) = 1;
-                            % opt_coeffs(1,S+1:end,:,:) = 0;
-
-                        elseif strat == "sum surr. approx."
+                        if strat == "sum baseline"
+                            opt_coeffs(strat_idx,1:S,:,:) = approx_to_omni_scale_factor .* ones(size(opt_coeffs(strat_idx,1:S,:,:)));
+                            opt_coeffs(strat_idx,S+1:end,:,:) = 0;
+                        elseif strat == "scsh sum surr. approx."
                             Ci_tilde = C1i - (C2i.^2)/T0;
                             % compute optimal ai*
                             opt_ai = (1./ci) .* sqrt(E_max ./ sum(Ci_tilde ./ ci.^2, 2));
                             opt_coeffs(strat_idx,1:S,:,:) = opt_ai; %reshape(opt_ai, 1, S, nDeployments);
                             opt_coeffs(strat_idx,S+1:end,:,:) = opt_ai .* C2i ./ T0; %reshape(opt_ai .* C2i ./ T0, 1, S, nDeployments);
-
+                        % elseif strat == "sc sum surr. approx."
+                        %     opt_ai = (1./ci) .* sqrt(E_max ./ sum(C1i ./ ci.^2, 2));
+                        %     opt_coeffs(strat_idx,1:S,:,:) = opt_ai;
+                        %     opt_coeffs(strat_idx,S+1:end,:,:) = 0;
+                        elseif strat == "indiv. baseline"
+                            opt_coeffs(strat_idx,1:S,:,:) = approx_Ei_max ./ omni_Ei_max;
+                            opt_coeffs(strat_idx,S+1:end,:,:) = 0;
                         elseif strat == "indiv. surr. approx."
                             Ci_tilde = C1i - (C2i.^2)/T0;
 
@@ -469,54 +477,40 @@ for agent_db_idx = 1:length(agent_db_values)
                             options = optimoptions('fmincon','Display','off','Algorithm','sqp');
                             total_opt_start = tic;
 
-                            % prevLength = 0;  % keep track of previous printed length
-                            % avg_runtime = 0;
-
                             opt_coeffs_cell = cell(1, nDeployments);
+                            
                             parfor dep_idx = 1:nDeployments
-                                
-                                % str = sprintf('Optimizing %s deployment: %d/%d | Avg. Runtime: %d minutes %.4f seconds', strat, dep_idx, nDeployments, floor(avg_runtime/60), mod(avg_runtime,60));
-                                % % Erase previous output
-                                % fprintf(repmat('\b', 1, prevLength));
-                                % % Print new output
-                                % fprintf('%s', str);
-                                % prevLength = length(str);  % update previous length
-
                                 local_coeffs = zeros(1,size(opt_coeffs,2));
-                                sas_nonlcon = @(x) sas_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, E_max(:,:,:,dep_idx), strat);
-
-                                dep_opt_start = tic;
+                                nonlcon = @(x) sas_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, E_max(:,:,:,dep_idx), strat);
+                                
                                 % compute optimal ai and bi for sas using weighted sum objective function
                                 for jj = 1:length(alpha_weight_vals)
                                     alpha_weight = alpha_weight_vals(jj);
                                     t0_weight = 1 - alpha_weight;
 
-                                    % weighted_sum_objective = @(x) alpha_weight .* alpha_objective_indiv(x, dep_idx) + t0_weight .* t0_objective_indiv(x, dep_idx, 1);
-                                    weighted_sum_objective = @(x) -(alpha_weight .* eig_alpha_indiv(x, dep_idx) + t0_weight .* eig_t0_indiv(x, dep_idx, 1));
+                                    weighted_sum_objective = @(x) alpha_weight .* alpha_objective_indiv(x, dep_idx) + t0_weight .* t0_objective_indiv(x, dep_idx, 1);
+                                    % weighted_sum_objective = @(x) -(alpha_weight .* eig_alpha_indiv(x, dep_idx) + t0_weight .* eig_t0_indiv(x, dep_idx, 1));
 
-                                    [weighted_sum_sas_x_opt, ~] = fmincon(weighted_sum_objective, x0, [], [], [], [], lb, ub, sas_nonlcon, options);
+                                    [weighted_sum_sas_x_opt, ~] = fmincon(weighted_sum_objective, x0, [], [], [], [], lb, ub, nonlcon, options);
                                     % store ai
                                     % opt_coeffs(strat_idx,1:S,:,dep_idx) = weighted_sum_sas_x_opt;
                                     local_coeffs(1:S) = weighted_sum_sas_x_opt
                                     
                                     % recompute bi coefficients
-                                    if ~contains(strat, "scale")
+                                    if contains(strat, "sh")
                                         % opt_coeffs(strat_idx,S+1:end,:,dep_idx) = opt_coeffs(strat_idx,1:S,:,dep_idx) .* C2i(:,:,:,dep_idx) ./ T0;
                                         local_coeffs(S+1:end) = local_coeffs(1:S) .* C2i(:,:,:,dep_idx) ./ T0;
                                     end
 
                                 end
+                                
                                 opt_coeffs_cell{dep_idx} = local_coeffs;
-                                % dep_runtime = toc(dep_opt_start);
-                                % avg_runtime = avg_runtime + (dep_runtime - avg_runtime)/dep_idx;
-                                % disp("Deployment " + num2str(dep_idx) + ": " + floor(dep_opt_time/60) + " minutes " + mod(dep_opt_time,60) + " seconds")
                             end
                             % Recombine after parfor
                             for dep_idx = 1:nDeployments
                                 opt_coeffs(strat_idx, :, :, dep_idx) = opt_coeffs_cell{dep_idx};
                             end
                             total_opt_time = toc(total_opt_start);
-                            fprintf("\n");
                             disp("Total " + strat + " time: " + floor(total_opt_time/60) + " minutes " + mod(total_opt_time,60) + " seconds")
                         end
 
@@ -529,12 +523,12 @@ for agent_db_idx = 1:length(agent_db_values)
                         ai = opt_coeffs(strat_idx, 1:S, :, :);
                         bi = opt_coeffs(strat_idx, S+1:end, :, :);
 
-                        if strat == "sum surr. approx."
-                            kappa_ai = (sum(ci .* ai .* mi.^2)).^2;
-                            xi_ai = sum(ci.^2 .* ai.^2 .* mi.^2);
-                            disp("Ratio N0/4 / xi_ai: " + num2str(mean(scaled_n_psd_constant ./ xi_ai)));
-                            disp("");
-                        end
+                        % if strat == "scsh sum surr. approx."
+                        %     kappa_ai = (sum(ci .* ai .* mi.^2)).^2;
+                        %     xi_ai = sum(ci.^2 .* ai.^2 .* mi.^2);
+                        %     disp("Ratio N0/4 / xi_ai: " + num2str(mean(scaled_n_psd_constant ./ xi_ai)));
+                        %     disp("");
+                        % end
 
                         % Find peak index from noisy channel-weighted sum (cws).
                         % [cws, ui] = util_functions.matched_filter_integral(reshape(ai .* xi,K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-ti-tpi-three_dim_t), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt, Ts, mi, ti);
@@ -546,8 +540,10 @@ for agent_db_idx = 1:length(agent_db_values)
                         % [cws, ui] = util_functions.matched_filter_integral(reshape(ai .* unified_xi,K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-tpi-three_dim_t), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt, Ts, mi, ti);
 
                         % Compute convolution using fft
-                        [cws_2, ui_2] = util_functions.mf_integral_fft(ai .* unified_xi, mi .* util_functions.sensor_signal(t-tpi), ci, K, dt, Ts, mi, ti);
-                        ui = pagetranspose(ui_2);
+                        [cws_2, ui_2] = util_functions.mf_integral_fft(ai .* unified_xi, mi .* util_functions.sensor_signal(t-tpi, Ts), ci, K, dt, Ts);
+                        if strat == "sum baseline"
+                            ui = pagetranspose(ui_2);
+                        end
                         cws = pagetranspose(cws_2);
                         
                         % Generate y(t).
@@ -561,9 +557,9 @@ for agent_db_idx = 1:length(agent_db_values)
 
                         y_searchable = y(:,1:(floor(t0_max/dt) + 1),:,:);
                         if exp_split(1) == "nae" || scheme == "MPC" || scheme == "EPC"
-                            [~,I] = max(abs(real(y_searchable)));
+                            [~,I] = max(abs(real(y_searchable)), [], 2);
                         else
-                            [~,I] = max(abs(y_searchable));
+                            [~,I] = max(abs(y_searchable), [], 2);
                         end
                         t0_estimates_for_plot = (I-1)*dt;
 
@@ -594,7 +590,7 @@ for agent_db_idx = 1:length(agent_db_values)
                                 % Compute y(t0). We have the index of what we think
                                 % is the peak value of y (where all the matched
                                 % filter peaks should line up).
-                                [cws_known_t0, ~] = reshape(util_functions.matched_filter_integral(reshape(xi,K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-ti-tpi-repmat(t0_true,1,1,K)), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt, Ts, mi, ti),1,K,nTrials,nDeployments);
+                                [cws_known_t0, ~] = reshape(util_functions.matched_filter_integral(reshape(xi,K,S,1,nTrials,nDeployments), reshape(mi .* util_functions.sensor_signal(t-ti-tpi-repmat(t0_true,1,1,K), Ts), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt, Ts, mi, ti),1,K,nTrials,nDeployments);
                                 
                                 % All column idx in t0_cws are the same currently,
                                 % hence 2nd idx = 1.
@@ -703,7 +699,7 @@ for agent_db_idx = 1:length(agent_db_values)
                                 % aaaI = imag(aaa);
 
                                 % Compute convolution using fft
-                                [aaa_2, ~] = pagetranpose(util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates), mi .* util_functions.sensor_signal(t), ci, K, dt, Ts, mi, ti));
+                                [aaa_2, ~] = pagetranpose(util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates, Ts), mi .* util_functions.sensor_signal(t, Ts), ci, K, dt, Ts));
                                 aaaR = real(aaa_2);
                                 aaaI = imag(aaa_2);
                                 
@@ -728,8 +724,8 @@ for agent_db_idx = 1:length(agent_db_values)
                                 denom1 = pagemtimes(pagemtimes(aaadR,resh_QnR_matrix),pagetranspose(aaadR));
                                 denom2 = pagemtimes(pagemtimes(aaadI,resh_QnI_matrix),pagetranspose(aaadI));
                                 denom = dt*dt*(denom1+denom2);
-                                % Compute AC-CWE estimates for full phase compensation.
                             else
+                                % Compute AC-CWE estimates for full phase compensation.
                                 % Define coefficients in V(w).
                                 Beta = 2 * pi^2 * sum(ci.^2 .* ai.^2 .* mi.^2, 2);
                                 C1 = Beta .* scaled_w_psd_constant;
@@ -757,7 +753,7 @@ for agent_db_idx = 1:length(agent_db_values)
                                 % denom = dt*dt*pagemtimes(pagemtimes(reshape(Omega,1,length(t),nTrials,nDeployments),reshape(Qn_matrix,length(t),length(t),1,nDeployments)),pagetranspose(reshape(Omega,1,length(t),nTrials,nDeployments)));
 
                                 % Compute convolution using fft
-                                [Omega_2, ~] = util_functions.mf_integral_fft(ai .* mi .* util_functions.sensor_signal(t-t0_estimates), mi .* util_functions.sensor_signal(t), ci, K, dt, Ts, mi, ti);
+                                [Omega_2, ~] = util_functions.mf_integral_fft(ai .* mi .* util_functions.sensor_signal(t-t0_estimates, Ts), mi .* util_functions.sensor_signal(t, Ts), ci, K, dt, Ts);
                                 num = dt*dt*pagemtimes(pagemtimes(real(y) + sum(ci .* bi, 2), reshape(Qn_matrix,length(t),length(t),1,nDeployments)), Omega_2);
                                 denom = dt*dt*pagemtimes(pagemtimes(pagetranspose(Omega_2),reshape(Qn_matrix,length(t),length(t),1,nDeployments)), Omega_2);
                             end
@@ -783,7 +779,7 @@ for agent_db_idx = 1:length(agent_db_values)
                             crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,save_dim,:) = t0_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3));
                         end
 
-                        % if strat == "baseline"
+                        % if strat == "sum baseline"
                         %     %%% OLD CRLBs (non-symbolic expressions) %%%
                         %     % Define derivative expressions for CRLBs.
                         %     dsalpha = reshape(squeeze(sum(ci .* sum(mi .* util_functions.sensor_signal(t-ti-t0_true) .* mi .* util_functions.sensor_signal(t-ti-three_dim_t) * dt,1),2)),K,1,nDeployments);
@@ -897,9 +893,11 @@ params_text = ["alpha","t0"];
 % color_vec = ["#A2142F", "#0072BD", "#333333"];
 color_vec = [
     "#A2142F",  ... red
+    ... approx. colors
     "#005B99",  ... blue
-    "#4DBEEE",  ... cyan
     "#105222",  ... lime-ish
+    ... fmincon colors
+    "#4DBEEE",  ... cyan
     "#77AC30",  ... green
     "#FF7F0E",  ... orange
     "#7E2F8E",  ... purple
@@ -1154,10 +1152,10 @@ indiv_power_vals = ai.^2 .* (C1i - (C2i.^2 ./ T0));
 sum_cond = @(D) sum(indiv_power_vals) - D.*E_max;
 indiv_cond = (indiv_power_vals-indiv_power_constraint)';
 
-if strat == "sum fmincon"
+if strat == "scsh sum fmincon"
     c = [sum_cond(1)];
-elseif strat == "scale fmincon"
-    c = [sum(ai.^2 .* C1i) - E_max];
+% elseif strat == "sc sum fmincon"
+%     c = [sum(ai.^2 .* C1i) - E_max];
 elseif strat == "indiv. fmincon"
     c = [indiv_cond];
 elseif strat == "mixed D=1 fmincon"

@@ -1,5 +1,5 @@
 % mf_integral_fft Returns the matched filter output of tempA and tempB using the FFT.
-function [out_tensor, ui_tensor] = mf_integral_fft(A_tensor, B_tensor, ci, K, dt, Ts, mi, ti)
+function [out_tensor, ui_tensor] = mf_integral_fft(A_tensor, B_tensor, ci, K, dt, Ts)
     % tempC = pagemtimes(pagetranspose(tempA),tempB);
     % 
     % diag_idx = sub2ind(size(tempC),1:S,1:S);
