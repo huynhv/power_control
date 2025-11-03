@@ -13,7 +13,7 @@ function [out_tensor, ui_tensor] = mf_integral_fft(A_tensor, B_tensor, ci, K, dt
     Af = fft(A_tensor, N, 1);
     Bf = fft(B_tensor, N, 1);
     Y_tensor =  dt*ifft(Af .* Bf, [], 1);
-    ui_tensor = Y_tensor(Ts/dt + 1:(Ts/dt + K),:,:,:);
+    ui_tensor = Y_tensor(Ts/dt + 1:(Ts/dt + K),:,:,:); % need to make sure index is integer multiple
     out_tensor = sum(ui_tensor .* ci, 2);
     disp('')
 end
