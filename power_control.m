@@ -350,6 +350,8 @@ for agent_db_idx = 1:length(agent_db_values)
                         BR = (a_select .* sum(real_channel .* mi.^2, 2) - sum(imag_channel .* mi.^2, 2)).^2;
                         BI = (a_select .* sum(imag_channel .* mi.^2, 2) + sum(real_channel .* mi.^2, 2)).^2;
 
+                        x = 1;
+
                         alpha_crlb = @(ai) (2*pi) ./ (BR .* integral(@(w) (mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndR_anon(w), -Inf, Inf, 'ArrayValued', true) + BI .* integral(@(w) (mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndI_anon(w), -Inf, Inf, 'ArrayValued', true));
                         
                         t0_crlb = @(ai) (2*pi) ./ (BR .* integral(@(w) alpha_true.^2 .* (w.*mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndR_anon(w), -Inf, Inf, 'ArrayValued', true) + BI .* integral(@(w) alpha_true.^2 .* (w*mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndI_anon(w), -Inf, Inf, 'ArrayValued', true));
