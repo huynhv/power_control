@@ -353,10 +353,6 @@ for agent_db_idx = 1:length(agent_db_values)
                         alpha_crlb = @(ai) (2*pi) ./ (BR .* integral(@(w) (mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndR_anon(w), -Inf, Inf, 'ArrayValued', true) + BI .* integral(@(w) (mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndI_anon(w), -Inf, Inf, 'ArrayValued', true));
                         
                         t0_crlb = @(ai) (2*pi) ./ (BR .* integral(@(w) alpha_true.^2 .* (w.*mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndR_anon(w), -Inf, Inf, 'ArrayValued', true) + BI .* integral(@(w) alpha_true.^2 .* (w*mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndI_anon(w), -Inf, Inf, 'ArrayValued', true));
-
-                        anon_crlb(1,agent_db_idx,channel_db_idx,1,scheme_idx,save_dim,:) = reshape(alpha_crlb(ones(size(ci))), 1, 1, nDeployments);
-                        anon_crlb(1,agent_db_idx,channel_db_idx,2,scheme_idx,save_dim,:) = reshape(t0_crlb(ones(size(ci))), 1, 1, nDeployments);
-
                     end
 
                     for strat_idx = 1:num_strats
