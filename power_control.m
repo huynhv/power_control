@@ -180,6 +180,8 @@ empirical_sensor_energy = zeros(num_strats,max(sensor_vals),1,nDeployments);
 
 clean_y_arr = zeros(num_strats,K,1,nDeployments);
 
+D_val = 0.5;
+
 disp("Starting runtime...")
 % Start run timer.
 loopTic = tic;
@@ -312,13 +314,12 @@ for agent_db_idx = 1:length(agent_db_values)
                     scaled_n_psd_array(channel_db_idx) = scaled_n_psd_constant;
 
                     %% Optimization
-
+                    Bee = pi/Tp;
+                    mag_sqr_S0_internal = @(w) (norm_fact^2) * (2*Bee.^2 .* (1 + cos(w.*pi./Bee)) ) ./ (w.^2 - Bee.^2).^2;
+                    mag_sqr_S0 = @(w) util_functions.zeroIfnan(mag_sqr_S0_internal(w)) + (w == Bee | w == -Bee) .* (mag_sqr_S0_internal(w-epsilon) + mag_sqr_S0_internal(w+epsilon))./2;
+                    
                     % Compute CRLB symbolically
                     if scheme == "EPC"
-                        Bee = pi/Tp;
-                        mag_sqr_S0_internal = @(w) (norm_fact^2) * (2*Bee.^2 .* (1 + cos(w.*pi./Bee)) ) ./ (w.^2 - Bee.^2).^2;
-                        mag_sqr_S0 = @(w) util_functions.zeroIfnan(mag_sqr_S0_internal(w)) + (w == Bee | w == -Bee) .* (mag_sqr_S0_internal(w-epsilon) + mag_sqr_S0_internal(w+epsilon))./2;
-
                         % define colored noise spectrum V(w)
                         V_arr_internal = @(w, ai) scaled_w_psd_constant .* sum(ci.^2 .* ai.^2 .* mi.^2, 2) .* mag_sqr_S0_internal(w) + scaled_n_psd_constant/2;
                         V_arr = @(w, ai) util_functions.zeroIfnan(V_arr_internal(w, ai)) + (w == Bee | w == -Bee) .* (V_arr_internal(w-epsilon, ai) + V_arr_internal(w+epsilon, ai))./2;
@@ -340,10 +341,24 @@ for agent_db_idx = 1:length(agent_db_values)
                         t0_objective_indiv = @(dep_ai, dep_mi, dep_ci, arb_alpha) 1./eig_t0_indiv(dep_ai, dep_mi, dep_ci, arb_alpha);
 
                     elseif scheme == "PPC"
+                        mag_sqr_SHdI_anon = @(w) 1 ./ (gamma + mag_sqr_S0(w));
+
+                        % Compute SKndR and SKndI.
+                        SKndR_anon = @(w) pR + mag_sqr_SHdI_anon(w) .* qR;
+                        SKndI_anon = @(w) pI + mag_sqr_SHdI_anon(w) .* qI;
+
+                        BR = (a_select .* sum(real_channel .* mi.^2, 2) - sum(imag_channel .* mi.^2, 2)).^2;
+                        BI = (a_select .* sum(imag_channel .* mi.^2, 2) + sum(real_channel .* mi.^2, 2)).^2;
+
+                        alpha_crlb = @(ai) (2*pi) ./ (BR .* integral(@(w) (mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndR_anon(w), -Inf, Inf, 'ArrayValued', true) + BI .* integral(@(w) (mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndI_anon(w), -Inf, Inf, 'ArrayValued', true));
                         
+                        t0_crlb = @(ai) (2*pi) ./ (BR .* integral(@(w) alpha_true.^2 .* (w.*mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndR_anon(w), -Inf, Inf, 'ArrayValued', true) + BI .* integral(@(w) alpha_true.^2 .* (w*mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndI_anon(w), -Inf, Inf, 'ArrayValued', true));
+
+                        anon_crlb(1,agent_db_idx,channel_db_idx,1,scheme_idx,save_dim,:) = reshape(alpha_crlb(ones(size(ci))), 1, 1, nDeployments);
+                        anon_crlb(1,agent_db_idx,channel_db_idx,2,scheme_idx,save_dim,:) = reshape(t0_crlb(ones(size(ci))), 1, 1, nDeployments);
+
                     end
 
-                    D_val = 0.5;
                     for strat_idx = 1:num_strats
                         strat = all_strats(strat_idx);
                         disp("Starting " + strat + "...");
