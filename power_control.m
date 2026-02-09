@@ -13,7 +13,6 @@ rng(seed);
 experiment_list = ["nae_disjoint", "nae_joint", "cwe_disjoint", "cwe_joint", "cwe_joint_grid", "random_dropout", ...
     "nae_joint_imperfect_tpi", "cwe_joint_imperfect_tpi", "cwe_disjoint_energy_opt"];
 experiment = "cwe_disjoint_energy_opt";
-save_images = false;
 
 % Set number of deployments.
 nDeployments = 10; % do not change
@@ -147,14 +146,14 @@ channel_db_values = repmat(channel_snr, length(selected_schemes), 1, length(agen
 scaled_n_psd_array = zeros(1,length(channel_snr));
 scaled_w_psd_array = zeros(1,length(agent_db_values));
 
-alpha_weight_vals = 0;
+alpha_weight_vals = 0.5;
 
 if experiment == "cwe_disjoint_energy_opt"
     all_strats = [];
-    constraints = ["sum"]; % "sum", "indiv.", "mixed"
+    constraints = ["mixed"]; % "sum", "indiv.", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["hetero.", "homog."];  % "homog.", "hetero."
-    approaches = ["surr. approx."]; % "surr. approx.", "fmincon"
+    approaches = ["surr. approx.", "fmincon"]; % "surr. approx.", "fmincon"
 
     [sub_c, tr, ct, ap] = ndgrid(constraints, transforms, coeff_types, approaches);
 
@@ -175,7 +174,6 @@ crlb = zeros(num_strats,length(agent_db_values),size(channel_db_values,2),n_para
 empirical_var = crlb;
 empirical_mse = crlb;
 empirical_bias = crlb;
-% old_crlb = zeros(1,length(agent_db_values),size(channel_db_values,2),n_params,length(selected_schemes),sensor_dimension,nDeployments);
 
 empirical_total_energy = zeros(num_strats,1,1,nDeployments);
 empirical_sensor_energy = zeros(num_strats,max(sensor_vals),1,nDeployments);
@@ -340,8 +338,12 @@ for agent_db_idx = 1:length(agent_db_values)
 
                         alpha_objective_indiv = @(dep_ai, dep_mi, dep_ci) 1./eig_alpha_indiv(dep_ai, dep_mi, dep_ci);
                         t0_objective_indiv = @(dep_ai, dep_mi, dep_ci, arb_alpha) 1./eig_t0_indiv(dep_ai, dep_mi, dep_ci, arb_alpha);
+
+                    elseif scheme == "PPC"
+                        
                     end
 
+                    D_val = 0.5;
                     for strat_idx = 1:num_strats
                         strat = all_strats(strat_idx);
                         disp("Starting " + strat + "...");
@@ -367,23 +369,51 @@ for agent_db_idx = 1:length(agent_db_values)
                         
                         %% individual energy constraint
                         elseif contains(strat, "indiv. linear homog.")
-                            opt_ai = min(Ai_linear);
+                            opt_ai = min(Ai_linear, [], 2);
                             opt_bi = 0;
                             
                         elseif contains(strat, "indiv. affine homog.")
-                            opt_ai = min(Ai_affine);
+                            opt_ai = min(Ai_affine, [], 2);
                             opt_bi = opt_ai .* C2i ./ T0;
                             
                         elseif contains(strat, "indiv. linear hetero.")
-                            [Gamma_linear, ~] = min(ci .* Ai_linear);
+                            [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
                             opt_ai = Gamma_linear ./ ci;
                             opt_bi = 0;
                             
                         elseif contains(strat, "indiv. affine hetero.")
-                            [Gamma_affine, ~] = min(ci .* Ai_affine);
+                            [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
                             opt_ai = Gamma_affine ./ ci;
                             opt_bi = opt_ai .* C2i ./ T0;
                         %%% individual energy constraint
+
+                        %% mixed energy constraint
+                        elseif contains(strat, "mixed linear homog.")
+                            indiv_cond = min(Ai_linear, [], 2);
+                            sum_cond = sqrt(E_total ./ sum(C1i,2));
+
+                            opt_ai = min([indiv_cond sum_cond], [], 2);
+                            opt_bi = 0;
+                        elseif contains(strat, "mixed affine homog.")
+                            indiv_cond = min(Ai_affine, [], 2);
+                            sum_cond = sqrt(E_total ./ sum(Ci_tilde, 2));
+
+                            opt_ai = min([indiv_cond sum_cond], [], 2);
+                            opt_bi = opt_ai .* C2i ./ T0;
+                        elseif contains(strat, "mixed linear hetero.")
+                            [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
+                            sum_cond_linear = sqrt(D_val * E_total ./ sum(C1i ./ ci.^2, 2));
+                            mixed_cond_linear = [Gamma_linear sum_cond_linear];
+
+                            opt_ai = min(mixed_cond_linear, [], 2) ./ ci;
+                            opt_bi = 0;
+                        elseif contains(strat, "mixed affine hetero.")
+                            [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
+                            sum_cond_affine = sqrt(D_val * E_total ./ sum(Ci_tilde ./ ci.^2, 2));
+                            mixed_cond_affine = [Gamma_affine sum_cond_affine];
+
+                            opt_ai = min(mixed_cond_affine, [], 2) ./ ci;
+                            opt_bi = opt_ai .* C2i ./ T0;
                         end
 
                         if contains(strat, "surr. approx.")
@@ -395,18 +425,21 @@ for agent_db_idx = 1:length(agent_db_values)
                             options = optimoptions('fmincon','Display','off','Algorithm','sqp');
                             
                             opt_coeffs_cell = cell(1, nDeployments);
-                            
+
+                            % run fmincon using parallelization
                             parfor dep_idx = 1:nDeployments
+
+                                % x0 only depends on ai, bi values are just placeholders here
                                 if contains(strat, "affine homog.")
-                                    x0 = [1 1];
+                                    x0 = [opt_ai(:,:,:,dep_idx) 1];
                                 elseif contains(strat, "affine hetero.")
-                                    x0 = [ones(1,2*S)];
+                                    x0 = [opt_ai(:,:,:,dep_idx) ones(1,S)];
                                 elseif contains(strat, "linear homog.")
-                                    x0 = [1 0];
+                                    x0 = [opt_ai(:,:,:,dep_idx) 0];
                                 elseif contains(strat, "linear hetero.")
-                                    x0 = [ones(1,S) zeros(1,S)];
+                                    x0 = [opt_ai(:,:,:,dep_idx) zeros(1,S)];
                                 end
-                                % x0 = opt_ai(:,:,:,dep_idx); % Initial guesses for ai
+                            
                                 dep_ci = ci(:,:,:,dep_idx);
                                 dep_mi = mi(:,:,:,dep_idx);
 
@@ -414,9 +447,8 @@ for agent_db_idx = 1:length(agent_db_values)
                                 ub = []; % unrestricted
 
                                 local_coeffs = zeros(1,2*S);
-                                % constraints function expects input for x0
-                                % to be [ai bi]
-                                nonlcon = @(x) fmincon_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, E_total(:,:,:,dep_idx), strat, 1);
+                                % constraints function expects input for x0 to be [ai bi]
+                                nonlcon = @(x) fmincon_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, E_total(:,:,:,dep_idx), strat, D_val);
                                 
                                 % compute optimal ai and bi using weighted sum objective function
                                 for jj = 1:length(alpha_weight_vals)
@@ -474,11 +506,11 @@ for agent_db_idx = 1:length(agent_db_values)
                     % coefficients because they consider CRLB obj. funct.
                     idx1 = find(all_strats == "indiv. linear homog. surr. approx.");
                     idx2 = find(all_strats == "indiv. linear hetero. surr. approx.");
-                    il_homog_scaler = empirical_total_energy(idx2,:,:,:) ./ empirical_total_energy(idx1,:,:,:);
+                    linear_homog_scaler = empirical_total_energy(idx2,:,:,:) ./ empirical_total_energy(idx1,:,:,:);
 
                     idx3 = find(all_strats == "indiv. affine homog. surr. approx.");
                     idx4 = find(all_strats == "indiv. affine hetero. surr. approx.");
-                    ia_homog_scaler = empirical_total_energy(idx4,:,:,:) ./ empirical_total_energy(idx3,:,:,:);
+                    affine_homog_scaler = empirical_total_energy(idx4,:,:,:) ./ empirical_total_energy(idx3,:,:,:);
 
                     %% Estimation
                     disp("Starting ML estimation...");
@@ -487,9 +519,9 @@ for agent_db_idx = 1:length(agent_db_values)
                         strat = all_strats(strat_idx);
 
                         if strat == "indiv. linear homog. surr. approx."
-                            opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* il_homog_scaler;
+                            opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* linear_homog_scaler;
                         elseif strat == "indiv. affine homog. surr. approx."
-                            opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* ia_homog_scaler;
+                            opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* affine_homog_scaler;
                             opt_coeffs(strat_idx,S+1:end,:,:) = opt_coeffs(strat_idx, 1:S, :, :) .* C2i ./ T0;
                         end
                         
@@ -569,7 +601,7 @@ for agent_db_idx = 1:length(agent_db_values)
                             alpha_estimates =  real(peak_y_vals) ./ sum(real(ci) .* Ei,2);
 
                         % Compute estimates for AC-CWE.
-                        elseif exp_split(1) ~= "nae"
+                        elseif contains(experiment, "cwe") || experiment == "random_dropout"
                             % Define frequency domain parameters
                             fs = 1/dt;
                             L = K-1;
@@ -710,6 +742,8 @@ for agent_db_idx = 1:length(agent_db_values)
                                 denom = dt*dt*pagemtimes(pagemtimes(pagetranspose(Omega_2),reshape(Qn_matrix,K,K,1,nDeployments)), Omega_2);
                             end
                             alpha_estimates = num ./ denom;
+                        else
+                            error("Unknown experiment specified!")
                         end
 
                         % Compute empirical variance.
@@ -754,9 +788,6 @@ if nDeployments == 1
     avg_dep_mse = empirical_mse;
     avg_dep_crlb = crlb;
     avg_dep_bias = empirical_bias;
-
-    % avg_dep_old_crlb = old_crlb;
-    % avg_dep_my_var = my_var;
 else
     avg_dep_var = mean(empirical_var,length(size(empirical_var)));
     avg_dep_mse = mean(empirical_mse,length(size(empirical_mse)));
@@ -773,27 +804,26 @@ else
     avg_dep_crlb(:,:,:,2) = avg_dep_crlb(:,:,:,2) ./ T0^2;
 
     avg_dep_bias = mean(empirical_bias,length(size(empirical_bias)));
-    % avg_dep_old_crlb = mean(old_crlb,length(size(old_crlb)));
 end
 
 %% Save experiment results.
-% if ~any(experiment == experiment_list)
-%     disp("Unknown experiment specified. Results not saved!")
-% else
-%     files_to_save = ["avg_dep_var", "avg_dep_mse", "avg_dep_bias", "avg_dep_crlb",...
-%         "agent_db_values", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
-%         "experiment","exp_split","sensor_dimension", "save_images", "K", "nDeployments"];
-%     if experiment == "cwe_disjoint_energy_opt"
-%         files_to_save = [files_to_save, "constraints", "transforms", "coeff_types", "approaches", "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals", "save_images", ...
-%             "A", "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr"];
-%     end
-%     save(constraints(1) + "_" + experiment + "_results.mat", files_to_save{:})
-%     % save(constraints(1) + "_" + experiment + "_HIGH_SNR_results.mat", files_to_save{:})
-% end
+if ~any(experiment == experiment_list)
+    disp("Unknown experiment specified. Results not saved!")
+else
+    files_to_save = ["avg_dep_var", "avg_dep_mse", "avg_dep_bias", "avg_dep_crlb",...
+        "agent_db_values", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
+        "experiment","exp_split","sensor_dimension", "save_images", "K", "nDeployments"];
+    if experiment == "cwe_disjoint_energy_opt"
+        files_to_save = [files_to_save, "constraints", "transforms", "coeff_types", "approaches", "iter_length", "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals", "save_images", ...
+            "A", "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr"];
+    end
+    save(constraints(1) + "_" + experiment + "_results.mat", files_to_save{:})
+end
 
 %% Define plot parameters.
 params_latex = ["\alpha","t_0"];
 params_text = ["alpha","t0"];
+
 
 RGB = orderedcolors("gem12");
 H = compose("#%02X%02X%02X",round(RGB*255));
@@ -801,8 +831,9 @@ colors = cellstr(H);
 colorMap = containers.Map(cellstr(all_strats), colors(1:length(all_strats)));
 
 home_dir = char(java.lang.System.getProperty('user.home'));
-folder_path = home_dir + "\Desktop\Final AirComp Results\";
+folder_path = home_dir + "\Desktop\Energy Efficient AirComp Results\";
 
+save_images = true;
 exclude = ["None"];
 
 %% Linear plots
@@ -812,9 +843,9 @@ if experiment ~= "cwe_joint_grid"
 
         for param_idx = 1:2
             % Collect all plot values for y-axis scaling.
-            all_vals = [avg_dep_var(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-                avg_dep_mse(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-                avg_dep_crlb(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+            all_vals = [avg_dep_crlb(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+                % avg_dep_var(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+                % avg_dep_mse(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
                 % avg_dep_old_crlb(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
                 ];
 
@@ -827,7 +858,7 @@ if experiment ~= "cwe_joint_grid"
                 % hold on
                 
                 fig1 = figure;
-                set(fig1,'Position',[100,100,1500,450], 'Name', params_text(param_idx) + " hat | " + constraints(1) + " | A = " + A + ", alpha = " + alpha_true + ", t0 = " + t0_true + ", Tp = " + Tp + ", T0 = " + T0, 'NumberTitle', 'off')
+                set(fig1,'Position',[0,0,1920,1080], 'Name', params_text(param_idx) + " hat | " + constraints(1) + " | A = " + A + ", alpha = " + alpha_true + ", t0 = " + t0_true + ", Tp = " + Tp + ", T0 = " + T0, 'NumberTitle', 'off')
                 tiledlayout(1,length(constraints));
 
                 if experiment == "random_dropout"
@@ -877,8 +908,8 @@ if experiment ~= "cwe_joint_grid"
                                 continue
                             end
                             
-                            plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color',colorMap(strat),'LineWidth', plot_line_width)
-                            plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',colorMap(strat),'LineWidth', plot_line_width)
+                            % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color',colorMap(strat),'LineWidth', plot_line_width)
+                            % plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',colorMap(strat),'LineWidth', plot_line_width)
                             plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',colorMap(strat),'LineWidth', plot_line_width)
                         end
                         % % plot non-symbolic crlb to validate symbolic results
@@ -1039,6 +1070,7 @@ end
 function [c, ceq] = fmincon_constraints(x, C1i, C2i, T0, E_max, strat, D)
 ai = x(1:length(x)/2);
 bi = x(length(x)/2 + 1:end);
+
 indiv_energy_constraint = C1i;
 
 if contains(strat, "linear")
