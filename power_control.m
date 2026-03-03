@@ -14,7 +14,7 @@ fprintf('│  %s  │\n', msg);
 fprintf('╰%s╯\n\n', border);
 
 % Set seed for reproducibility
-seed = 100;
+seed = 264;
 rng(seed);
 
 nDeployments = 5;
@@ -24,7 +24,7 @@ K = 501;
 nTrials = 1000;
 
 % Set number of sensors
-sensor_vals = 8; % [5,10]
+sensor_vals = 7; % [5,10]
 agent_db_values = 0;
 dropout_vals = 0;
 sensor_dimension = length(sensor_vals);
@@ -86,8 +86,9 @@ n = (randn(K,max_sensor_limit,nTrials,nDeployments) + 1i*randn(K,max_sensor_limi
 all_gi = (randn(1,max_sensor_limit,1,nDeployments) + 1i*randn(1,max_sensor_limit,1,nDeployments))/sqrt(2);
 
 % Generate mi and ti.
-all_mi = unifrnd(min_mi,max_mi,1,max_sensor_limit,1,nDeployments);
-all_ti = unifrnd(min_ti,max_ti,1,max_sensor_limit,1,nDeployments);
+all_mi = sort(unifrnd(min_mi,max_mi,1,max_sensor_limit,1,nDeployments),2,'descend');
+all_ti = sort(unifrnd(min_ti,max_ti,1,max_sensor_limit,1,nDeployments),2,'ascend');
+
 all_tpi = zeros(1,max_sensor_limit,1,nDeployments);
 
 selected_schemes = ["EPC"];
@@ -118,11 +119,11 @@ if contains(experiment, "diff_rho")
     coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
     approaches = ["surr. approx."]; % "surr. approx.", "fmincon"
 else
-    channel_snr = [0,5,10,15,20];
+    channel_snr = [0,10,20];
     rho_vals = 0.50;
     
     constraints = ["indiv."]; % "sum", "indiv.", "mixed"
-    transforms = ["linear", "affine"]; % "linear", "affine"
+    transforms = ["linear","affine"]; % "linear", "affine"
     coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
     approaches = ["surr. approx."]; % "surr. approx.", "fmincon"
 end
@@ -138,7 +139,7 @@ iter_arr = tr + " " + ct + " " + ap;
 all_strats = sub_c + " " + iter_arr;
 all_strats = all_strats(:);   % flatten into list
 
-all_strats = [all_strats; "clip"];
+% all_strats = [all_strats; "clip"];
 
 iter_length = length(transforms) * length(coeff_types) * length(approaches);
 
@@ -196,6 +197,7 @@ for rho_idx = 1:length(rho_vals)
                 ti = all_ti(:,1:S,:,:);
                 tpi = all_tpi(:,1:S,:,:);
                 gi = all_gi(:,1:S,:,:);
+                delta_i = zeros(size(mi));
     
                 % Calculate quantized phase.
                 M = 4;
@@ -226,7 +228,7 @@ for rho_idx = 1:length(rho_vals)
                 vect_int_Rs0_sqrd = sum(vect_Rs0.^2) * dt;
                 int_Rs0_sqrd = vect_int_Rs0_sqrd;
     
-                vect_gamma_i = sum(mi .* util_functions.sensor_signal(t-ti-three_dim_t, Tp, norm_fact).^2,1) * dt;
+                vect_gamma_i = sum(mi.^2 .* util_functions.sensor_signal(t-ti-three_dim_t, Tp, norm_fact).^2, 1) * dt;
                 vect_int_gamma_i = sum(vect_gamma_i,3)*dt;
                 int_gamma_i = vect_int_gamma_i;
     
@@ -247,22 +249,37 @@ for rho_idx = 1:length(rho_vals)
 
                 fundamental_E = rho*int_Rs0_sqrd;
 
-                s0 = @(tau) (heaviside(tau)-heaviside(tau-1)) .* sin(pi/Tp .* tau);
-                Rs0 = @(t) integral(@(u) s0(u-t0_true) .* s0(u-t), 0, T0);
-           
-                my_int_Rs0_sqr = integral(@(t) Rs0(t).^2, 0, T0, 'ArrayValued', true);
-
-                calc_energy = @(t1) 2*integral(@(t) Rs0(t).^2, 0, t1, 'ArrayValued', true) + Rs0(t1).^2 * (2*Tp - 2*t1);
-
-                saturation_obj = @(t1) calc_energy(t1) - fundamental_E;
-
-                t1_optimal = fzero(saturation_obj, [0, Tp]);
+                if contains(all_strats, "clip")
+                    s0 = @(tau) (heaviside(tau)-heaviside(tau-1)) .* sin(pi/Tp .* tau);
+                    Rss = @(t) integral(@(u) s0(u-t0_true) .* s0(u-t), 0, T0, 'ArrayValued', true);
+               
+                    my_int_Rs0_sqr = integral(@(t) Rss(t).^2, 0, T0, 'ArrayValued', true);
+                    
+                    calc_energy = @(bias) integral(@(t) max(0, Rss(t)-bias).^2, 0, T0, 'ArrayValued', true);
+                    saturation_obj = @(bias) calc_energy(bias) - fundamental_E;
+    
+                    L_optimal = fzero(saturation_obj, [0, calc_energy(0)]);
+                    Li = pagetranspose(L_optimal .* alpha_true .* mi.^2);
+    
+                    clip_ui = max(ui-Li, 0);
+    
+                    zero_obj = @(t1) Rss(t1) - L_optimal;
+                    my_t1 = fzero(zero_obj, [0,Tp]);
+                    my_t2 = fzero(zero_obj, [1,2*Tp]);
+    
+                    [~,t1] = max(diff(sign(Rss(t)-L_optimal)));
+                    t1 = dt*(t1+1); % we want to capture the region where the signal is positive
+                    [~,t2] = min(diff(sign(Rss(t)-L_optimal)));
+                    t2 = dt*t2;
+    
+                    clipping_window = (t >= my_t1 & t <= my_t2);
+    
+                    E_clip_uit_sqrd = pagetranspose(sum(mean(clip_ui.^2,3),2)) * dt;
+                    E_clip_uit = pagetranspose(sum(mean(clip_ui,3),2)) * dt;
+                    clip_energy_nae = mean(abs(Ei_max - E_clip_uit_sqrd) ./ Ei_max, "all");
+                    fprintf("clip indiv. energy nae = %f\n", clip_energy_nae);
+                end
                 
-                clip_L = pagetranspose(Rs0(t1_optimal) .* alpha_true .* mi.^2);
-                clip_ui = min(ui, clip_L);
-                E_clip_uit_sqrd = pagetranspose(sum(mean(clip_ui.^2,3),2)) * dt;
-                E_clip_uit = pagetranspose(sum(mean(clip_ui,3),2)) * dt;
-                clip_energy_nae = mean(abs(Ei_max - E_clip_uit_sqrd) ./ Ei_max, "all");
 
                 % Iterate through channel snr values.
                 for channel_db_idx = 1:size(channel_db_values,2)
@@ -360,13 +377,17 @@ for rho_idx = 1:length(rho_vals)
                             total_opt_start = tic;
     
                             % baseline estimation without optimal coefficients
-                            if contains(strat, "none") || contains(strat, "clip")
+                            if contains(strat, "none")
                                 opt_coeffs(:,1:S,:,:) = ones(size(opt_coeffs(:,1:S,:,:)));
                                 opt_coeffs(:,S+1:end,:,:) = zeros(size(opt_coeffs(:,S+1:end,:,:)));
                             else
                                 % estimation with coefficients
                                 if scheme == "EPC"
-                                    if contains(strat, "sum linear homog.")
+                                    if contains(strat, "clip")
+                                        opt_ai = 1;
+                                        opt_bi = 0;
+
+                                    elseif contains(strat, "sum linear homog.")
                                         opt_ai = sqrt(E_total ./ sum(C1i,2));
                                         opt_bi = 0;
         
@@ -441,7 +462,7 @@ for rho_idx = 1:length(rho_vals)
                                     end
                                 end
                                 % Store coeffs if using surr. approx
-                                if contains(strat, "surr. approx")
+                                if ~contains(strat, "fmincon") % contains(strat, "surr. approx")
                                     opt_coeffs(strat_idx,1:S,:,:) = opt_ai .* ones(size(opt_coeffs(strat_idx,1:S,:,:)));
                                     opt_coeffs(strat_idx,S+1:end,:,:) = opt_bi .* ones(size(opt_coeffs(strat_idx,1:S,:,:)));
                                 % Run fminsearch
@@ -565,20 +586,17 @@ for rho_idx = 1:length(rho_vals)
                             ai = opt_coeffs(strat_idx, 1:S, :, :);
                             bi = opt_coeffs(strat_idx, S+1:end, :, :);
     
-                            % [clean_cws_2, clean_ui_2] = util_functions.mf_integral_fft(clean_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), ci, ai, K, dt, Tp);
-                            % clean_y_arr(strat_idx,:,:,:) = clean_cws_2 - sum(ci .* bi, 2);
-    
-                            % Construct y
-                            [~, ui_2] = mf_integral_fft(noisy_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), ci, ai, K, dt, Tp);
-                            
+                            [~, ui] = mf_integral_fft(noisy_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), ci, ai, K, dt, Tp);
+
                             if contains(strat, "clip")
-                                ui_2 = min(ui_2, pagetranspose(clip_L));
+                                ui_clip = max(ui-pagetranspose(Li), 0);
+                                out_cws = sum(ci .* ui_clip, 2);
+                            else
+                                out_cws = sum(ci .* (ai .* ui - bi), 2);
                             end
 
-                            out_cws = sum(ui_2 .* ci .* ai, 2);
                             cws = pagetranspose(out_cws);
-    
-                            y = cws - sum(ci .* bi, 2) + pagetranspose(scaled_n(:,1,:,:));
+                            y = cws + pagetranspose(scaled_n(:,1,:,:));
     
                             if contains(experiment, "cwe") || experiment == "random_dropout"
                                 % Define search space for t0
@@ -591,15 +609,23 @@ for rho_idx = 1:length(rho_vals)
                                     [~, Qn_matrix] = get_time_domain(mag_sqr_H,dt,nDeployments);
     
                                     % estimate t0
+                                    % if contains(strat, "clip")
+                                    %     [~, temp_for_t0] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
+                                    %     Omega_2_t0_search= sum(ci .* temp_for_t0 .* clipping_window, 2);
+                                    %     Omega_2_t0_search = reshape(Omega_2_t0_search - clipping_window .* sum(ci .* bi, 2), K, 1, K, 1, nDeployments);
+                                    %     mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + clipping_window.' .* sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
+                                    %     % [max_y_vals,I] = max(real(y),[],2);
+                                    % else
+                                    %     [Omega_2_t0_search, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
+                                    %     Omega_2_t0_search = reshape(Omega_2_t0_search - sum(ci .* bi, 2), K, 1, K, 1, nDeployments);
+                                    %     mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
+                                    %     [max_y_vals,I] = max(mf_with_y, [], 3);
+                                    % end
+
                                     [Omega_2_t0_search, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
                                     Omega_2_t0_search = reshape(Omega_2_t0_search - sum(ci .* bi, 2), K, 1, K, 1, nDeployments);
-    
-                                    if contains(strat, "clip")
-                                        [max_y_vals,I] = max(real(y),[],2);
-                                    else
-                                        mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
-                                        [max_y_vals,I] = max(mf_with_y, [], 3);
-                                    end
+                                    mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
+                                     
 
                                     t0_estimates_for_plot = reshape((I-1)*dt, 1, 1, nTrials, nDeployments);
     
@@ -608,20 +634,35 @@ for rho_idx = 1:length(rho_vals)
                                     else
                                         t0_estimates_for_alpha = t0_estimates_for_plot;
                                     end
-    
-                                    if contains(strat, "clip")
-                                        num = max_y_vals;
-                                        denom = sum(real(ci) .* Ei,2);
-                                    else
-                                        % Omega = matched_filter_integral(reshape(mi .* sensor_signal(t-ti-t0_estimates),K,S,1,nTrials,nDeployments), reshape(mi .* sensor_signal(t-ti-reshape(t,1,1,K)), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt);
-                                        [Omega, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
-        
-                                        resh_Qn = reshape(Qn_matrix,K,K,1,nDeployments);
-                                        resh_Omega = reshape(Omega,1,K,nTrials,nDeployments);
-        
-                                        num = dt*dt*pagemtimes(pagemtimes(real(y) + sum(ci .* bi, 2),resh_Qn),pagetranspose(resh_Omega));
-                                        denom = dt*dt*pagemtimes(pagemtimes(resh_Omega,resh_Qn),pagetranspose(resh_Omega));
-                                    end
+
+                                    %%% estimate alpha
+
+                                    % Omega = matched_filter_integral(reshape(mi .* sensor_signal(t-ti-t0_estimates),K,S,1,nTrials,nDeployments), reshape(mi .* sensor_signal(t-ti-reshape(t,1,1,K)), K,S,K,1,nDeployments), ci, K, S, nTrials, nDeployments, dt);
+                                    
+                                    % if contains(strat, "clip")
+                                    %     [~, temp_for_alpha] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
+                                    %     Omega = sum(ci .* temp_for_alpha .* clipping_window, 2);
+                                    % 
+                                    %     resh_Qn = reshape(Qn_matrix,K,K,1,nDeployments);
+                                    %     resh_Omega = reshape(Omega,1,K,nTrials,nDeployments);
+                                    % 
+                                    %     num = dt*dt*pagemtimes(pagemtimes(real(y) + clipping_window.' .* sum(ci .* bi, 2),resh_Qn),pagetranspose(resh_Omega));
+                                    %     denom = dt*dt*pagemtimes(pagemtimes(resh_Omega,resh_Qn),pagetranspose(resh_Omega));
+                                    % else
+                                    %     [Omega, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
+                                    %     resh_Qn = reshape(Qn_matrix,K,K,1,nDeployments);
+                                    %     resh_Omega = reshape(Omega,1,K,nTrials,nDeployments);
+                                    % 
+                                    %     num = dt*dt*pagemtimes(pagemtimes(real(y) + sum(ci .* bi, 2),resh_Qn),pagetranspose(resh_Omega));
+                                    %     denom = dt*dt*pagemtimes(pagemtimes(resh_Omega,resh_Qn),pagetranspose(resh_Omega));
+                                    % end
+
+                                    [Omega, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
+                                    resh_Qn = reshape(Qn_matrix,K,K,1,nDeployments);
+                                    resh_Omega = reshape(Omega,1,K,nTrials,nDeployments);
+
+                                    num = dt*dt*pagemtimes(pagemtimes(real(y) + sum(ci .* bi, 2),resh_Qn),pagetranspose(resh_Omega));
+                                    denom = dt*dt*pagemtimes(pagemtimes(resh_Omega,resh_Qn),pagetranspose(resh_Omega));
                                     
                                 elseif (scheme == "PPC" || scheme == "NPC")
                                     mag_sqr_SHdI = ones(1,K,1,nDeployments) .* mag_sqr_SHdI_anon(omega);
@@ -721,8 +762,26 @@ for rho_idx = 1:length(rho_vals)
                             rho_empirical_bias(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = mean(t0_estimates_for_plot,3);
     
                             if scheme == "EPC"
+                                % if contains(strat, "clip")
+                                %     % continue
+                                %     [~, temp_for_crlb] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_true, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
+                                %     Omega_for_crlb = sum(ci .* temp_for_crlb .* clipping_window, 2);
+                                %     resh_Omega_for_crlb = reshape(Omega_for_crlb,1,K,1,nDeployments);
+                                % 
+                                %     temp = -w0*cos(w0*(t-ti-t0_true)).*(heaviside(t-ti-t0_true) - heaviside(t-ti-t0_true-Tp)) + sin(w0*(t-ti-t0_true)).*-1.*(dirac(t-ti-t0_true) - dirac(t-ti-t0_true-Tp));
+                                %     dst0 = reshape(squeeze(sum(ci .* reshape(clipping_window, 1,1,K) .* sum(alpha_true .* mi.^2 .* temp .* sensor_signal(t-ti-reshape(t,1,1,K)) * dt,1),2)),1,K,1,nDeployments);
+                                % 
+                                % 
+                                %     rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = 1./(dt*dt*pagemtimes(pagemtimes(resh_Omega_for_crlb,resh_Qn),pagetranspose(resh_Omega_for_crlb)));
+                                %     rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = 1./(dt*dt*pagemtimes(pagemtimes(dst0,resh_Qn),pagetranspose(dst0)));
+                                % else
+                                %     rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = alpha_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci);
+                                %     rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = t0_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci, alpha_true);
+                                % end
+                                
                                 rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = alpha_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci);
                                 rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = t0_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci, alpha_true);
+
                             elseif scheme == "PPC"
                                 rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = alpha_crlb(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, real(ci), imag(ci));
                                 rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = t0_crlb(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, real(ci), imag(ci), alpha_true);
@@ -841,7 +900,6 @@ if contains(experiment, "diff_rho")
                     x_axis_series = rho_vals;
                     plot_line_width = 1.5;
     
-                    
                     for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
                         strat = all_strats(strat_idx);
                         split_str = split(strat);
@@ -910,6 +968,18 @@ for agent_db_idx = 1:length(agent_db_values)
                 ax = gca;
                 hold(ax, 'on');
 
+                lgd = [];
+
+                for count_idx = data_idx_seq
+                    strat = all_strats(count_idx);
+                    split_str = split(strat);
+                    iter_key = join(split_str(2:end), " ");
+
+                    lgd = [lgd iter_key];
+
+                    plot(ax, nan,nan,'color',colorMap(iter_key),'LineWidth',2);
+                end
+
                 plot(ax, nan,nan,'^','color','black');
                 plot(ax, nan,nan,'x','color','black');
                 plot(ax, nan,nan,'o','color','black');
@@ -920,7 +990,6 @@ for agent_db_idx = 1:length(agent_db_values)
                 for count_idx = 1:length(count_vals)
                     for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
                         strat = all_strats(strat_idx);
-                        disp(strat)
                         split_str = split(strat);
                         iter_key = join(split_str(2:end), " ");
 
@@ -930,7 +999,7 @@ for agent_db_idx = 1:length(agent_db_values)
                     end
                 end
                 % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color','black','LineWidth', plot_line_width)
-                plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color','black','LineWidth', plot_line_width)
+                % plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color','black','LineWidth', plot_line_width)
                 % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color','black','LineWidth', plot_line_width)
 
                 xlabel('Channel SNR (dB)')
@@ -942,7 +1011,7 @@ for agent_db_idx = 1:length(agent_db_values)
                 ax.YScale = 'log';          % log scale if needed
                 grid(ax, 'on');             % turn on grid
 
-                legend(ax, ["VAR","MSE","CRLB"], 'Location', 'ne')
+                legend(ax, [lgd, "VAR","MSE","CRLB"], 'Location', 'ne')
 
                 grid on
 
