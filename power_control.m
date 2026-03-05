@@ -122,10 +122,10 @@ else
     channel_snr = [0,10,20];
     rho_vals = 0.50;
     
-    constraints = ["indiv."]; % "sum", "indiv.", "mixed"
+    constraints = ["sum"]; % "sum", "indiv.", "mixed"
     transforms = ["linear","affine"]; % "linear", "affine"
     coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
-    approaches = ["surr. approx."]; % "surr. approx.", "fmincon"
+    approaches = ["surr. approx.", "fmincon"]; % "surr. approx.", "fmincon"
 end
 
 % constraints = ["none"]; % "sum", "indiv.", "mixed"
@@ -140,6 +140,7 @@ all_strats = sub_c + " " + iter_arr;
 all_strats = all_strats(:);   % flatten into list
 
 % all_strats = [all_strats; "clip"];
+all_strats = [all_strats; "sum agnostic"];
 
 iter_length = length(transforms) * length(coeff_types) * length(approaches);
 
@@ -386,7 +387,7 @@ for rho_idx = 1:length(rho_vals)
                                     if contains(strat, "clip")
                                         opt_ai = 1;
                                         opt_bi = 0;
-
+                                        
                                     elseif contains(strat, "sum linear homog.")
                                         opt_ai = sqrt(E_total ./ sum(C1i,2));
                                         opt_bi = 0;
@@ -427,7 +428,7 @@ for rho_idx = 1:length(rho_vals)
                                         %%% mixed energy constraint
                                     elseif contains(strat, "mixed linear homog.")
                                         indiv_cond = min(Ai_linear, [], 2);
-                                        sum_cond = sqrt(D_val * E_total ./ sum(C1i,2));
+                                        sum_cond = sqrt(E_total ./ sum(C1i,2));
         
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
                                         opt_bi = 0;
@@ -561,27 +562,28 @@ for rho_idx = 1:length(rho_vals)
     
                         % guarantee same energy usage, always scale to hetero.
                         % coefficients because they consider CRLB obj. funct.
-                        idx1 = find(all_strats == "indiv. linear homog. surr. approx.");
-                        idx2 = find(all_strats == "indiv. linear hetero. surr. approx.");
-                        linear_homog_scaler = empirical_total_energy(idx2,:,:,:) ./ empirical_total_energy(idx1,:,:,:);
-    
-                        idx3 = find(all_strats == "indiv. affine homog. surr. approx.");
-                        idx4 = find(all_strats == "indiv. affine hetero. surr. approx.");
-                        affine_homog_scaler = empirical_total_energy(idx4,:,:,:) ./ empirical_total_energy(idx3,:,:,:);
+                        % idx1 = find(all_strats == "indiv. linear homog. surr. approx.");
+                        % idx2 = find(all_strats == "indiv. linear hetero. surr. approx.");
+                        % linear_homog_scaler = empirical_total_energy(idx2,:,:,:) ./ empirical_total_energy(idx1,:,:,:);
+                        % 
+                        % idx3 = find(all_strats == "indiv. affine homog. surr. approx.");
+                        % idx4 = find(all_strats == "indiv. affine hetero. surr. approx.");
+                        % affine_homog_scaler = empirical_total_energy(idx4,:,:,:) ./ empirical_total_energy(idx3,:,:,:);
     
                         %%%%%%%%%%%%%%%%% ESTIMATION %%%%%%%%%%%%%%%%%
                         total_est_start = tic;
                         for strat_idx = 1:num_strats
                             strat = all_strats(strat_idx);
                             disp("Starting ML estimation for " + strat);
-                            if scheme == "EPC"
-                                if strat == "indiv. linear homog. surr. approx."
-                                    opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* linear_homog_scaler;
-                                elseif strat == "indiv. affine homog. surr. approx."
-                                    opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* affine_homog_scaler;
-                                    opt_coeffs(strat_idx,S+1:end,:,:) = opt_coeffs(strat_idx, 1:S, :, :) .* C2i ./ T0;
-                                end
-                            end
+                            
+                            % if scheme == "EPC"
+                            %     if strat == "indiv. linear homog. surr. approx."
+                            %         opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* linear_homog_scaler;
+                            %     elseif strat == "indiv. affine homog. surr. approx."
+                            %         opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* affine_homog_scaler;
+                            %         opt_coeffs(strat_idx,S+1:end,:,:) = opt_coeffs(strat_idx, 1:S, :, :) .* C2i ./ T0;
+                            %     end
+                            % end
     
                             ai = opt_coeffs(strat_idx, 1:S, :, :);
                             bi = opt_coeffs(strat_idx, S+1:end, :, :);
@@ -625,7 +627,7 @@ for rho_idx = 1:length(rho_vals)
                                     [Omega_2_t0_search, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
                                     Omega_2_t0_search = reshape(Omega_2_t0_search - sum(ci .* bi, 2), K, 1, K, 1, nDeployments);
                                     mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
-                                     
+                                    [max_y_vals,I] = max(mf_with_y, [], 3);
 
                                     t0_estimates_for_plot = reshape((I-1)*dt, 1, 1, nTrials, nDeployments);
     
