@@ -17,14 +17,14 @@ fprintf('╰%s╯\n\n', border);
 seed = 264;
 rng(seed);
 
-nDeployments = 5;
+nDeployments = 10;
 % Set the number of measurements per sensor, starting from 0
-K = 501;
+K = 301;
 % Set number of trials.
 nTrials = 1000;
 
 % Set number of sensors
-sensor_vals = 7; % [5,10]
+sensor_vals = 5; % [5,10]
 agent_db_values = 0;
 dropout_vals = 0;
 sensor_dimension = length(sensor_vals);
@@ -122,7 +122,7 @@ else
     channel_snr = [0,10,20];
     rho_vals = 0.50;
     
-    constraints = ["sum"]; % "sum", "indiv.", "mixed"
+    constraints = ["indiv."]; % "sum", "indiv.", "mixed"
     transforms = ["linear","affine"]; % "linear", "affine"
     coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
     approaches = ["surr. approx.", "fmincon"]; % "surr. approx.", "fmincon"
@@ -140,7 +140,6 @@ all_strats = sub_c + " " + iter_arr;
 all_strats = all_strats(:);   % flatten into list
 
 % all_strats = [all_strats; "clip"];
-all_strats = [all_strats; "sum agnostic"];
 
 iter_length = length(transforms) * length(coeff_types) * length(approaches);
 
@@ -336,45 +335,13 @@ for rho_idx = 1:length(rho_vals)
     
                                 alpha_objective_array = @(ai, mi, ci) (2*pi) ./( ((sum(ci .* ai .* mi.^2)).^2) .* integral(@(w) (mag_sqr_S0(w)).^2 / V_arr(w, ai, mi, ci), -Inf, Inf, 'ArrayValued', true));
                                 t0_objective_array = @(ai, mi, ci, arb_alpha) (2*pi) ./( (arb_alpha^2 .* (sum(ci .* ai .* mi.^2)).^2) .* integral(@(w) (w .* mag_sqr_S0(w)).^2 / V_arr(w,ai, mi, ci), -Inf, Inf, 'ArrayValued', true));
-    
-                            elseif (scheme == "PPC" || scheme == "NPC")
-                                giR = real(ci);
-                                giI = imag(ci);
-    
-                                % Compute polynomial to find coefficients for
-                                % decorrelation filter.
-                                b = @(ai,mi,giR,giI) sum(giR .* giI .* ai.^2 .* mi.^2,2) ./ (sum(ai.^2 .* mi.^2 .* (giR.^2 - giI.^2),2));
-                                discr = @(ai,mi,giR,giI) 1 + 4.*b(ai,mi,giR,giI).^2;
-                                a1 = @(ai,mi,giR,giI)(-1 + sqrt(discr(ai,mi,giR,giI))) ./ (2*b(ai,mi,giR,giI));
-                                a2 = @(ai,mi,giR,giI) (-1 - sqrt(discr(ai,mi,giR,giI))) ./ (2*b(ai,mi,giR,giI));
-                                a_root = @(ai,mi,giR,giI) a1(ai,mi,giR,giI);
-    
-                                % Compute pR and qR.
-                                pR = @(ai,mi,giR,giI) scaled_w_psd_constant * sum(ai.^2 .* mi.^2 .* (a_root(ai,mi,giR,giI).*giR - giI).^2, 2);
-                                qR = @(ai,mi,giR,giI) (scaled_n_psd_constant/2 * (a_root(ai,mi,giR,giI).^2 + 1)) - Gamma*pR(ai,mi,giR,giI);
-    
-                                % Compute pI and qI.
-                                pI = @(ai,mi,giR,giI) scaled_w_psd_constant * sum(ai.^2 .* mi.^2 .* (giR + a_root(ai,mi,giR,giI).*giI).^2, 2);
-                                qI = @(ai,mi,giR,giI) (scaled_n_psd_constant/2 * (a_root(ai,mi,giR,giI).^2 + 1)) - Gamma*pI(ai,mi,giR,giI);
-    
-                                % Compute SKndR and SKndI.
-                                SKndR_anon = @(w,ai,mi,giR,giI) pR(ai,mi,giR,giI) + mag_sqr_SHdI_anon(w) .* qR(ai,mi,giR,giI);
-                                SKndI_anon = @(w,ai,mi,giR,giI) pI(ai,mi,giR,giI) + mag_sqr_SHdI_anon(w) .* qI(ai,mi,giR,giI);
-    
-                                BR = @(ai,mi,giR,giI) (a_root(ai,mi,giR,giI) .* sum(giR .* ai .* mi.^2, 2) - sum(giI .* ai .* mi.^2, 2)).^2;
-                                BI = @(ai,mi,giR,giI) (a_root(ai,mi,giR,giI) .* sum(giI .* ai .* mi.^2, 2) + sum(giR .* ai .* mi.^2, 2)).^2;
-    
-                                alpha_crlb = @(ai,mi,giR,giI) (2*pi) ./ (BR(ai,mi,giR,giI) .* integral(@(w) (mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndR_anon(w,ai,mi,giR,giI), -Inf, Inf, 'ArrayValued', true)...
-                                    + BI(ai,mi,giR,giI) .* integral(@(w) (mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndI_anon(w,ai,mi,giR,giI), -Inf, Inf, 'ArrayValued', true));
-                                t0_crlb = @(ai,mi,giR,giI,arb_alpha) (2*pi) ./ (BR(ai,mi,giR,giI) .* integral(@(w) arb_alpha.^2 .* (w.*mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndR_anon(w,ai,mi,giR,giI), -Inf, Inf, 'ArrayValued', true)...
-                                    + BI(ai,mi,giR,giI) .* integral(@(w) arb_alpha.^2 .* (w*mag_sqr_S0(w)).^2 .* mag_sqr_SHdI_anon(w) ./ SKndI_anon(w,ai,mi,giR,giI), -Inf, Inf, 'ArrayValued', true));
                             end
                         end
     
                         %%%%%%%%%%%%%%%%% Optimize pulse shaping coefficients %%%%%%%%%%%%%%%%%
                         for strat_idx = 1:num_strats
                             strat = all_strats(strat_idx);
-                            disp("Starting " + strat + "...");
+                            fprintf("Optimizing coeffs. for " + strat + ":");
                             total_opt_start = tic;
     
                             % baseline estimation without optimal coefficients
@@ -387,7 +354,12 @@ for rho_idx = 1:length(rho_vals)
                                     if contains(strat, "clip")
                                         opt_ai = 1;
                                         opt_bi = 0;
-                                        
+
+                                        %%% total energy constraint
+                                    elseif contains(strat, "sum agnostic")
+                                        opt_ai = sqrt(rho*D_val);
+                                        opt_bi = 0;
+
                                     elseif contains(strat, "sum linear homog.")
                                         opt_ai = sqrt(E_total ./ sum(C1i,2));
                                         opt_bi = 0;
@@ -406,6 +378,10 @@ for rho_idx = 1:length(rho_vals)
                                         %%% end total energy constraint
         
                                         %%% individual energy constraint
+                                    elseif contains(strat, "indiv. agnostic")
+                                        opt_ai = sqrt(rho);
+                                        opt_bi = 0;
+
                                     elseif contains(strat, "indiv. linear homog.")
                                         opt_ai = min(Ai_linear, [], 2);
                                         opt_bi = 0;
@@ -453,14 +429,6 @@ for rho_idx = 1:length(rho_vals)
                                         opt_ai = min(mixed_cond_affine, [], 2) ./ ci;
                                         opt_bi = opt_ai .* C2i ./ T0;
                                     end
-                                elseif scheme == "PPC"
-                                    if contains(strat, "hetero.")
-                                        opt_ai = ones(size(ci));
-                                        opt_bi = zeros(size(ci));
-                                    elseif contains(strat, "homog.")
-                                        opt_ai = ones(1,1,1,nDeployments);
-                                        opt_bi = 0;
-                                    end
                                 end
                                 % Store coeffs if using surr. approx
                                 if ~contains(strat, "fmincon") % contains(strat, "surr. approx")
@@ -503,8 +471,6 @@ for rho_idx = 1:length(rho_vals)
         
                                             if scheme == "EPC"
                                                 weighted_sum_objective = @(x) alpha_weight .* alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) + t0_weight .* t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1);
-                                            elseif scheme == "PPC"
-                                                weighted_sum_objective = @(x) alpha_weight .* alpha_crlb(x(1:length(x)/2), dep_mi, real(dep_ci), imag(dep_ci)) + t0_weight .* t0_crlb(x(1:length(x)/2), dep_mi, real(dep_ci), imag(dep_ci), 1);
                                             end
                                             [optimal_x, ~] = fmincon(weighted_sum_objective, x0, [], [], [], [], lb, ub, nonlcon, options);
         
@@ -665,88 +631,6 @@ for rho_idx = 1:length(rho_vals)
 
                                     num = dt*dt*pagemtimes(pagemtimes(real(y) + sum(ci .* bi, 2),resh_Qn),pagetranspose(resh_Omega));
                                     denom = dt*dt*pagemtimes(pagemtimes(resh_Omega,resh_Qn),pagetranspose(resh_Omega));
-                                    
-                                elseif (scheme == "PPC" || scheme == "NPC")
-                                    mag_sqr_SHdI = ones(1,K,1,nDeployments) .* mag_sqr_SHdI_anon(omega);
-                                    % Define magnitude of SHdI.
-                                    mag_SHdI = sqrt(mag_sqr_SHdI);
-    
-                                    % Get time domain matrix for hdI.
-                                    [~, hdI_matrix] = get_time_domain(mag_SHdI,dt,nDeployments);
-    
-                                    % Get time domain matrix for hdR.
-                                    hdR_matrix = reshape(a_root(ai,mi,giR,giI),1,1,nDeployments) .* hdI_matrix;
-    
-                                    % Compute SKndR and SKndI.
-                                    SKndR = SKndR_anon(omega,ai,mi,giR,giI);
-                                    SKndI = SKndI_anon(omega,ai,mi,giR,giI);
-    
-                                    % Check to make sure SKndR and SKndI are positive.
-                                    if sum(SKndR <= 0, "all")
-                                        error("SKndR less than or equal to 0!")
-                                    elseif sum(SKndI <= 0, "all")
-                                        error("SKndI less than or equal to 0!")
-                                    end
-    
-                                    % Generate whitening filters based on inverse
-                                    % spectrum.
-                                    SQnR = 1 ./ SKndR;
-                                    SQnI = 1 ./ SKndI;
-    
-                                    % Get time domain matrix  for QnR and QnI.
-                                    [~,QnR_matrix] = util_functions.get_time_domain(SQnR,dt,nDeployments);
-                                    [~,QnI_matrix] = util_functions.get_time_domain(SQnI,dt,nDeployments);
-    
-                                    Qn_matrix = QnR_matrix + 1i*QnI_matrix;
-    
-                                    % Compute closed-form expressions for alpha
-                                    t0_search_space = repmat(reshape(t,1,1,[]), 1,1,1,nDeployments);
-                                    % estimate t0
-                                    [Omega_2_t0_search, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
-                                    Omega_2_t0_search = reshape(Omega_2_t0_search - sum(ci .* bi, 2), K, 1, K, 1, nDeployments);
-    
-                                    mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(y + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
-    
-                                    [max_y_vals,I] = max(mf_with_y, [], 3);
-                                    t0_estimates_for_plot = reshape((I-1)*dt, 1, 1, nTrials, nDeployments);
-    
-                                    if contains(experiment, "disjoint")
-                                        t0_estimates_for_alpha = t0_true*ones(1,1,nTrials,nDeployments);
-                                    else
-                                        t0_estimates_for_alpha = t0_estimates_for_plot;
-                                    end
-    
-                                    % Compute closed-form expressions for alpha
-                                    [Omega, ~] = mf_integral_fft(mi .* sensor_signal(t-t0_estimates_for_alpha), mi .* sensor_signal(t), ci, 1, K, dt, Tp);
-    
-                                    Omega = pagetranspose(Omega);
-                                    OmegaR = real(Omega);
-                                    OmegaI = imag(Omega);
-    
-                                    %%% TODO: double check alpha is being processed correctly.
-                                    yR = real(y + sum(ci .* bi, 2));
-                                    yI = imag(y + sum(ci .* bi, 2));
-    
-                                    resh_hdR = reshape(hdR_matrix,K,K,1,nDeployments);
-                                    resh_hdI = reshape(hdI_matrix,K,K,1,nDeployments);
-    
-                                    resh_QnR = reshape(QnR_matrix,K,K,1,nDeployments);
-                                    resh_QnI = reshape(QnI_matrix,K,K,1,nDeployments);
-    
-                                    % The d here is for decorrelation, not derivative.
-                                    OmegadR = dt*(pagemtimes(OmegaR,resh_hdR) - pagemtimes(OmegaI,resh_hdI));
-                                    OmegadI = dt*(pagemtimes(OmegaI,resh_hdR) + pagemtimes(OmegaR,resh_hdI));
-    
-                                    ydR = dt*(pagemtimes(yR,resh_hdR) - pagemtimes(yI,resh_hdI));
-                                    ydI = dt*(pagemtimes(yI,resh_hdR) + pagemtimes(yR,resh_hdI));
-    
-                                    num1 = pagemtimes(pagemtimes(ydR,resh_QnR),pagetranspose(OmegadR));
-                                    num2 = pagemtimes(pagemtimes(ydI,resh_QnI),pagetranspose(OmegadI));
-                                    num = dt*dt*(num1+num2);
-    
-                                    denom1 = pagemtimes(pagemtimes(OmegadR,resh_QnR),pagetranspose(OmegadR));
-                                    denom2 = pagemtimes(pagemtimes(OmegadI,resh_QnI),pagetranspose(OmegadI));
-                                    denom = dt*dt*(denom1+denom2);
                                 end
                                 alpha_estimates = num ./ denom;
                             end
@@ -783,10 +667,6 @@ for rho_idx = 1:length(rho_vals)
                                 
                                 rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = alpha_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci);
                                 rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = t0_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci, alpha_true);
-
-                            elseif scheme == "PPC"
-                                rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = alpha_crlb(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, real(ci), imag(ci));
-                                rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = t0_crlb(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, real(ci), imag(ci), alpha_true);
                             end
                         end
                         total_est_time = toc(total_est_start);
