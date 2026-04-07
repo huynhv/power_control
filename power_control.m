@@ -7,8 +7,8 @@ experiment_list = ["cwe_disjoint_energy_opt", "cwe_disjoint_energy_opt_diff_rho"
 experiment = "cwe_disjoint_energy_opt";
 
 msg = ['Running ' char(experiment)];
-border = repmat('─', 1, length(msg)+4);
-
+msg_len = strlength(msg);
+border = repmat('─', 1, ceil(msg_len/1.5) + 2);
 fprintf('\n╭%s╮\n', border);
 fprintf('│  %s  │\n', msg);
 fprintf('╰%s╯\n\n', border);
@@ -21,7 +21,7 @@ nDeployments = 10;
 % Set the number of measurements per sensor, starting from 0
 K = 301;
 % Set number of trials.
-nTrials = 1000;
+nTrials = 600;
 
 % Set number of sensors
 sensor_vals = 5; % [5,10]
@@ -111,35 +111,60 @@ all_strats = [];
 
 if contains(experiment, "diff_rho")
     % Define channel snr values.
-    channel_snr = 20; %%% TODO: need to make this dynamic
+    channel_snr = 15; %%% TODO: need to make this dynamic
     rho_vals = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
-    constraints = ["sum"]; % "sum", "indiv.", "mixed"
+    constraints = ["total"]; % "total", "indiv.", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
-    approaches = ["surr. approx."]; % "surr. approx.", "fmincon"
+    approaches = ["surr. approx", "fmincon"]; % "surr. approx.", "fmincon"
 else
-    channel_snr = [0,10,20];
+    channel_snr = linspace(0,15,5);
     rho_vals = 0.50;
     
-    constraints = ["indiv."]; % "sum", "indiv.", "mixed"
+    constraints = ["indiv.", "total", "mixed"]; % "total", "indiv.", "mixed"
     transforms = ["linear","affine"]; % "linear", "affine"
     coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
     approaches = ["surr. approx.", "fmincon"]; % "surr. approx.", "fmincon"
 end
 
-% constraints = ["none"]; % "sum", "indiv.", "mixed"
+% constraints = ["none"]; % "total", "indiv.", "mixed"
 % transforms = ["none"]; % "linear", "affine"
 % coeff_types = ["none"];  % "homog.", "hetero."
 % approaches = ["none"]; % "surr. approx.", "fmincon"
+% 
+% [sub_c, tr, ct, ap] = ndgrid(constraints, transforms, coeff_types, approaches);
+% 
+% iter_arr = ct + " " + tr + " " + ap;
+% all_strats = sub_c + " " + iter_arr;
+% all_strats = all_strats(:);   % flatten into list
 
-[sub_c, tr, ct, ap] = ndgrid(constraints, transforms, coeff_types, approaches);
+iter_arr = [];
+all_strats = [];
 
-iter_arr = tr + " " + ct + " " + ap;
-all_strats = sub_c + " " + iter_arr;
-all_strats = all_strats(:);   % flatten into list
+for i = 1:numel(constraints)
+    for j = 1:numel(coeff_types)
+        for k = 1:numel(transforms)
+            for l = 1:numel(approaches)
+                % do not include homog. surr. approx in strats
+                if coeff_types(j) == 'homog.' && approaches(l) == 'fmincon'
+                    continue
+                % elseif contains(experiment, "diff_rho") && coeff_types(j) == 'hetero.' && approaches(l) == 'surr. approx'
+                %     continue
+                else
+                    if i == 1
+                        iter_arr = [iter_arr; coeff_types(j) + " " + transforms(k) + " " + approaches(l)];
+                    end
+                    all_strats = [all_strats; constraints(i) + " " + coeff_types(j) + " " + transforms(k) + " " + approaches(l)];
+                end 
+            end
+        end
+    end
+end
 
-% all_strats = [all_strats; "clip"];
+if ~contains(experiment, "diff_rho")
+    all_strats = [all_strats; "clip"];
+end
 
 iter_length = length(transforms) * length(coeff_types) * length(approaches);
 
@@ -210,6 +235,8 @@ for rho_idx = 1:length(rho_vals)
 
                 [~, clean_ui_1] = util_functions.mf_integral_fft(clean_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
                 clean_ui = pagetranspose(clean_ui_1);
+
+                [~, wi_tilde] = util_functions.mf_integral_fft(scaled_w(:,1:S,:,:), mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
     
                 [~, ui_1] = util_functions.mf_integral_fft(noisy_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
                 ui = pagetranspose(ui_1);
@@ -249,7 +276,7 @@ for rho_idx = 1:length(rho_vals)
 
                 fundamental_E = rho*int_Rs0_sqrd;
 
-                if contains(all_strats, "clip")
+                if any(contains(all_strats, "clip"))
                     s0 = @(tau) (heaviside(tau)-heaviside(tau-1)) .* sin(pi/Tp .* tau);
                     Rss = @(t) integral(@(u) s0(u-t0_true) .* s0(u-t), 0, T0, 'ArrayValued', true);
                
@@ -341,7 +368,8 @@ for rho_idx = 1:length(rho_vals)
                         %%%%%%%%%%%%%%%%% Optimize pulse shaping coefficients %%%%%%%%%%%%%%%%%
                         for strat_idx = 1:num_strats
                             strat = all_strats(strat_idx);
-                            fprintf("Optimizing coeffs. for " + strat + ":");
+                            % fprintf("Optimizing coeffs. for " + strat + ":");
+                            disp("Optimizing coeffs. for " + strat)
                             total_opt_start = tic;
     
                             % baseline estimation without optimal coefficients
@@ -355,73 +383,65 @@ for rho_idx = 1:length(rho_vals)
                                         opt_ai = 1;
                                         opt_bi = 0;
 
-                                        %%% total energy constraint
-                                    elseif contains(strat, "sum agnostic")
-                                        opt_ai = sqrt(rho*D_val);
-                                        opt_bi = 0;
-
-                                    elseif contains(strat, "sum linear homog.")
+                                    %%% total energy constraint
+                                    elseif contains(strat, "total homog. linear")
                                         opt_ai = sqrt(E_total ./ sum(C1i,2));
                                         opt_bi = 0;
         
-                                    elseif contains(strat, "sum affine homog.")
+                                    elseif contains(strat, "total homog. affine")
                                         opt_ai = sqrt(E_total ./ sum(Ci_tilde, 2));
                                         opt_bi = opt_ai .* C2i ./ T0;
         
-                                    elseif contains(strat, "sum linear hetero.")
+                                    elseif contains(strat, "total hetero. linear")
                                         opt_ai = (1./ci) .* sqrt(E_total ./ sum(C1i ./ ci.^2, 2));
                                         opt_bi = 0;
         
-                                    elseif contains(strat, "sum affine hetero.")
+                                    elseif contains(strat, "total hetero. affine")
                                         opt_ai = (1./ci) .* sqrt(E_total ./ sum(Ci_tilde ./ ci.^2, 2));
                                         opt_bi = opt_ai .* C2i ./ T0;
-                                        %%% end total energy constraint
+                                    %%% end total energy constraint
         
-                                        %%% individual energy constraint
-                                    elseif contains(strat, "indiv. agnostic")
-                                        opt_ai = sqrt(rho);
-                                        opt_bi = 0;
-
-                                    elseif contains(strat, "indiv. linear homog.")
+                                    %%% individual energy constraint
+                                    elseif contains(strat, "indiv. homog. linear")
                                         opt_ai = min(Ai_linear, [], 2);
                                         opt_bi = 0;
         
-                                    elseif contains(strat, "indiv. affine homog.")
+                                    elseif contains(strat, "indiv. homog. affine")
                                         opt_ai = min(Ai_affine, [], 2);
                                         opt_bi = opt_ai .* C2i ./ T0;
         
-                                    elseif contains(strat, "indiv. linear hetero.")
+                                    elseif contains(strat, "indiv. hetero. linear")
                                         [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
                                         opt_ai = Gamma_linear ./ ci;
                                         opt_bi = 0;
         
-                                    elseif contains(strat, "indiv. affine hetero.")
+                                    elseif contains(strat, "indiv. hetero. affine")
                                         [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
                                         opt_ai = Gamma_affine ./ ci;
                                         opt_bi = opt_ai .* C2i ./ T0;
-                                        %%% individual energy constraint
+                                    %%% individual energy constraint
         
-                                        %%% mixed energy constraint
-                                    elseif contains(strat, "mixed linear homog.")
+                                    %%% mixed energy constraint
+                                    elseif contains(strat, "mixed homog. linear")
                                         indiv_cond = min(Ai_linear, [], 2);
                                         sum_cond = sqrt(E_total ./ sum(C1i,2));
         
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
                                         opt_bi = 0;
-                                    elseif contains(strat, "mixed affine homog.")
+                                    elseif contains(strat, "mixed homog. affine")
                                         indiv_cond = min(Ai_affine, [], 2);
                                         sum_cond = sqrt(E_total ./ sum(Ci_tilde, 2));
         
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
                                         opt_bi = opt_ai .* C2i ./ T0;
-                                    elseif contains(strat, "mixed linear hetero.")
+                                    elseif contains(strat, "mixed hetero. linear")
                                         [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
                                         sum_cond_linear = sqrt(E_total ./ sum(C1i ./ ci.^2, 2));
                                         mixed_cond_linear = [Gamma_linear sum_cond_linear];
         
                                         opt_ai = min(mixed_cond_linear, [], 2) ./ ci;
                                         opt_bi = 0;
-                                    elseif contains(strat, "mixed affine hetero.")
+                                    elseif contains(strat, "mixed hetero. affine")
                                         [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
                                         sum_cond_affine = sqrt(E_total ./ sum(Ci_tilde ./ ci.^2, 2));
                                         mixed_cond_affine = [Gamma_affine sum_cond_affine];
@@ -429,6 +449,7 @@ for rho_idx = 1:length(rho_vals)
                                         opt_ai = min(mixed_cond_affine, [], 2) ./ ci;
                                         opt_bi = opt_ai .* C2i ./ T0;
                                     end
+                                    %%% end mixed energy constraint
                                 end
                                 % Store coeffs if using surr. approx
                                 if ~contains(strat, "fmincon") % contains(strat, "surr. approx")
@@ -444,14 +465,18 @@ for rho_idx = 1:length(rho_vals)
                                     parfor dep_idx = 1:nDeployments
                                         % x0 only depends on ai, bi values are just placeholders here
                                         % use surr. approx. as starting point (where applicable)
-                                        if contains(strat, "affine homog.")
-                                            x0 = [opt_ai(:,:,:,dep_idx) 1];
-                                        elseif contains(strat, "affine hetero.")
-                                            x0 = [opt_ai(:,:,:,dep_idx) ones(1,S)];
-                                        elseif contains(strat, "linear homog.")
-                                            x0 = [opt_ai(:,:,:,dep_idx) 0];
-                                        elseif contains(strat, "linear hetero.")
-                                            x0 = [opt_ai(:,:,:,dep_idx) zeros(1,S)];
+                                        if contains(strat, "homog. linear")
+                                            % x0 = [opt_ai(:,:,:,dep_idx) 0];
+                                            x0 = [1 0];
+                                        elseif contains(strat, "homog. affine")
+                                            % x0 = [opt_ai(:,:,:,dep_idx) 1];
+                                            x0 = [1 1];
+                                        elseif contains(strat, "hetero. linear")
+                                            % x0 = [opt_ai(:,:,:,dep_idx) zeros(1,S)];
+                                            x0 = [ones(1,S) zeros(1,S)];
+                                        elseif contains(strat, "hetero. affine")
+                                            % x0 = [opt_ai(:,:,:,dep_idx) ones(1,S)];
+                                            x0 = [ones(1,2*S)]
                                         end
         
                                         dep_ci = ci(:,:,:,dep_idx);
@@ -495,28 +520,27 @@ for rho_idx = 1:length(rho_vals)
                             end
                             
                             %%% compute energy
-                            if channel_db_idx == 1
-                                ai = opt_coeffs(strat_idx, 1:S, :, :);
-                                bi = opt_coeffs(strat_idx, S+1:end, :, :);
-    
-                                if contains(strat, "clip")
-                                    sqrd_E_quantity = E_clip_uit_sqrd;
-                                    E_quantity = E_clip_uit;
-                                else
-                                    sqrd_E_quantity = E_uit_sqrd;
-                                    E_quantity = E_uit;
-                                end
-
-                                deployment_sensor_energy = ai.^2 .* sqrd_E_quantity - 2 .* ai .* bi .* E_quantity + bi.^2 * T0;
-                                empirical_sensor_energy(strat_idx,:,:,:) = deployment_sensor_energy;
-                                indiv_energy_nae = mean(abs(Ei_max - deployment_sensor_energy) ./ Ei_max, "all");
-                                disp(strat + " Indiv. Energy Norm Abs Err: " + num2str(indiv_energy_nae))
-    
-                                deployment_total_energy = sum(ai.^2 .* sqrd_E_quantity - 2 .* ai .* bi .* E_quantity + bi.^2 * T0, 2);
-                                empirical_total_energy(strat_idx,:,:,:) = deployment_total_energy;
-                                total_energy_nae = mean(abs(squeeze(E_total)-squeeze(deployment_total_energy))./squeeze(E_total));
-                                disp(strat + " Total Energy Norm Abs Err: " + num2str(total_energy_nae))
-                            end
+                            % ai = opt_coeffs(strat_idx, 1:S, :, :);
+                            % bi = opt_coeffs(strat_idx, S+1:end, :, :);
+                            % 
+                            % if contains(strat, "clip")
+                            %     sqrd_E_quantity = E_clip_uit_sqrd;
+                            %     E_quantity = E_clip_uit;
+                            % else
+                            %     sqrd_E_quantity = E_uit_sqrd;
+                            %     E_quantity = E_uit;
+                            % end
+                            % 
+                            % deployment_sensor_energy = ai.^2 .* sqrd_E_quantity - 2 .* ai .* bi .* E_quantity + bi.^2 * T0;
+                            % empirical_sensor_energy(strat_idx,:,:,:) = deployment_sensor_energy;
+                            % indiv_energy_nae = mean(abs(Ei_max - deployment_sensor_energy) ./ Ei_max, "all");
+                            % 
+                            % deployment_total_energy = sum(ai.^2 .* sqrd_E_quantity - 2 .* ai .* bi .* E_quantity + bi.^2 * T0, 2);
+                            % empirical_total_energy(strat_idx,:,:,:) = deployment_total_energy;
+                            % total_energy_nae = mean(abs(squeeze(E_total)-squeeze(deployment_total_energy))./squeeze(E_total));
+                            % 
+                            % disp(strat + " Indiv. Energy Norm Abs Err: " + num2str(indiv_energy_nae))
+                            % disp(strat + " Total Energy Norm Abs Err: " + num2str(total_energy_nae))
                             %%% end compute energy
     
                             total_opt_time = toc(total_opt_start);
@@ -528,12 +552,12 @@ for rho_idx = 1:length(rho_vals)
     
                         % guarantee same energy usage, always scale to hetero.
                         % coefficients because they consider CRLB obj. funct.
-                        % idx1 = find(all_strats == "indiv. linear homog. surr. approx.");
-                        % idx2 = find(all_strats == "indiv. linear hetero. surr. approx.");
+                        % idx1 = find(all_strats == "indiv. homog. linear surr. approx.");
+                        % idx2 = find(all_strats == "indiv. hetero. linear surr. approx.");
                         % linear_homog_scaler = empirical_total_energy(idx2,:,:,:) ./ empirical_total_energy(idx1,:,:,:);
                         % 
-                        % idx3 = find(all_strats == "indiv. affine homog. surr. approx.");
-                        % idx4 = find(all_strats == "indiv. affine hetero. surr. approx.");
+                        % idx3 = find(all_strats == "indiv. homog. affine surr. approx.");
+                        % idx4 = find(all_strats == "indiv. hetero. affine surr. approx.");
                         % affine_homog_scaler = empirical_total_energy(idx4,:,:,:) ./ empirical_total_energy(idx3,:,:,:);
     
                         %%%%%%%%%%%%%%%%% ESTIMATION %%%%%%%%%%%%%%%%%
@@ -543,9 +567,9 @@ for rho_idx = 1:length(rho_vals)
                             disp("Starting ML estimation for " + strat);
                             
                             % if scheme == "EPC"
-                            %     if strat == "indiv. linear homog. surr. approx."
+                            %     if strat == "indiv. homog. linear surr. approx."
                             %         opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* linear_homog_scaler;
-                            %     elseif strat == "indiv. affine homog. surr. approx."
+                            %     elseif strat == "indiv. homog. affine surr. approx."
                             %         opt_coeffs(strat_idx, 1:S, :, :) = opt_coeffs(strat_idx, 1:S, :, :) .* affine_homog_scaler;
                             %         opt_coeffs(strat_idx,S+1:end,:,:) = opt_coeffs(strat_idx, 1:S, :, :) .* C2i ./ T0;
                             %     end
@@ -704,9 +728,9 @@ else
     avg_dep_crlb(:,:,:,1,:,:) = avg_dep_crlb(:,:,:,1,:,:);
 
     % normalize time delay metrics
-    avg_dep_var(:,:,:,2,:,:) = avg_dep_var(:,:,:,2,:,:) ./ T0^2;
-    avg_dep_mse(:,:,:,2,:,:) = avg_dep_mse(:,:,:,2,:,:) ./ T0^2;
-    avg_dep_crlb(:,:,:,2,:,:) = avg_dep_crlb(:,:,:,2,:,:) ./ T0^2;
+    avg_dep_var(:,:,:,2,:,:) = avg_dep_var(:,:,:,2,:,:); % TODO: revisit normalization
+    avg_dep_mse(:,:,:,2,:,:) = avg_dep_mse(:,:,:,2,:,:);
+    avg_dep_crlb(:,:,:,2,:,:) = avg_dep_crlb(:,:,:,2,:,:);
 
     avg_dep_bias = mean(rho_empirical_bias,length(size(rho_empirical_bias)));
 end
@@ -714,236 +738,127 @@ end
 %% Save experiment results.
 save_images = false;
 
-% if ~any(experiment == experiment_list)
-%     disp("Unknown experiment specified. Results not saved!")
-% else
-%     files_to_save = ["avg_dep_var", "avg_dep_mse", "avg_dep_bias", "avg_dep_crlb",...
-%         "agent_db_values", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
-%         "experiment", "sensor_dimension", "save_images", "K", "nDeployments",...
-%         "constraints", "transforms", "coeff_types", "approaches", "iter_length", "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals", "save_images",...
-%         "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr", "rho_vals"];
-%     save(experiment + "_results.mat", files_to_save{:})
-% end
+if ~any(experiment == experiment_list)
+    disp("Unknown experiment specified. Results not saved!")
+else
+    files_to_save = ["avg_dep_var", "avg_dep_mse", "avg_dep_bias", "avg_dep_crlb",...
+        "agent_db_values", "channel_snr", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
+        "experiment", "sensor_dimension", "save_images", "K", "nDeployments",...
+        "constraints", "transforms", "coeff_types", "approaches", "iter_arr", "iter_length", "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals", "save_images",...
+        "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr", "rho_vals"];
+    save(experiment + "_results.mat", files_to_save{:})
+end
 
 %% Plotting
-params_latex = ["\alpha","t_0"];
-params_text = ["alpha","t0"];
+% params_latex = ["\alpha","t_0"];
+% params_text = ["alpha","t0"];
+% 
+% RGB = orderedcolors("gem12");
+% H = compose("#%02X%02X%02X",round(RGB*255));
+% colors = cellstr(H);
+% colorMap = containers.Map(cellstr(unique(iter_arr)), colors(1:iter_length));
+% 
+% home_dir = char(java.lang.System.getProperty('user.home'));
+% folder_path = home_dir + "\Desktop\Energy Efficient AirComp Results\";
+% 
+% exclude = ["None"];
+% 
+% if contains(experiment, "diff_rho")
+%     %%% rho plots
+%     for agent_db_idx = 1:length(agent_db_values)
+%         channel_db_idx = length(channel_snr);
+%         for param_idx = 1:2
+%             % Collect all plot values for y-axis scaling.
+%             all_vals = [avg_dep_mse(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals))
+%                         % avg_dep_crlb(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
+%                         % avg_dep_var(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
+%                         ];
+% 
+%             for scheme_idx = 1:length(selected_schemes)
+%                 scheme = selected_schemes(scheme_idx);
+% 
+%                 count_vals = rho_vals;
+% 
+%                 for constraint_idx = 1:length(constraints)
+%                     constraint = constraints(constraint_idx);
+%                     data_idx_seq = length(constraints)*(1:iter_length) - (length(constraints)-constraint_idx);
+%                     % Plot pseudoplots for legend symbols.
+% 
+%                     fig1 = figure;
+%                     set(fig1,'Position',[100,100,450,450])
+%                     ax = gca;
+%                     hold(ax, 'on');
+% 
+%                     for count_idx = data_idx_seq
+%                         strat = all_strats(count_idx);
+%                         split_str = split(strat);
+%                         iter_key = join(split_str(2:end), " ");
+% 
+%                         if contains(strat, exclude)
+%                             continue
+%                         end
+% 
+%                         plot(ax, nan,nan,'color',colorMap(iter_key),'LineWidth',2);
+%                     end
+% 
+%                     plot(ax, nan,nan,'x','color','black');
+% 
+%                     x_axis_series = rho_vals;
+%                     plot_line_width = 1.5;
+% 
+%                     for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
+%                         strat = all_strats(strat_idx);
+%                         split_str = split(strat);
+%                         iter_key = join(split_str(2:end), " ");
+% 
+%                         % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
+%                         plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
+%                         % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
+%                     end
+% 
+%                     xlabel('$$\rho$$','Interpreter','latex')
+%                     ylabel(" ")
+% 
+%                     title('$$\hat{'+params_latex(param_idx)+'}$$','Interpreter','latex')
+% 
+%                     ax.FontSize = 15;          % font size
+%                     ax.YScale = 'log';          % log scale if needed
+%                     grid(ax, 'on');             % turn on grid
+% 
+%                     legend(ax, [all_strats(data_idx_seq)',"MSE"], 'Location', 'best')
+% 
+%                     grid on
+% 
+%                     y_lower = 10^(-0.25)*min(all_vals,[],"all");
+%                     y_upper = 1.05*max(all_vals,[],"all");
+%                     ylim([y_lower,y_upper]);
+% 
+%                     % Save the figure.
+%                     if save_images
+%                         save_folder = folder_path + constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp);
+%                         if ~exist(save_folder, 'dir')
+%                             mkdir(save_folder);
+%                         end
+%                         exportgraphics(fig1, fullfile(save_folder, sprintf(constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp) + "_" + params_text(param_idx) + "_" + selected_schemes(scheme_idx) + ".png")), 'Resolution', 300);
+%                     end
+%                 end
+%             end
+%         end
+%     end
+% end
 
-RGB = orderedcolors("gem12");
-H = compose("#%02X%02X%02X",round(RGB*255));
-colors = cellstr(H);
-colorMap = containers.Map(cellstr(unique(iter_arr)), colors(1:iter_length));
-
-home_dir = char(java.lang.System.getProperty('user.home'));
-folder_path = home_dir + "\Desktop\Energy Efficient AirComp Results\";
-
-exclude = ["None"];
-
-if contains(experiment, "diff_rho")
-    %%% rho plots
-    for agent_db_idx = 1:length(agent_db_values)
-        channel_db_idx = length(channel_snr);
-        for param_idx = 1:2
-            % Collect all plot values for y-axis scaling.
-            all_vals = [avg_dep_mse(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals))
-                % avg_dep_crlb(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
-                % avg_dep_var(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
-                ];
-    
-            for scheme_idx = 1:length(selected_schemes)
-                scheme = selected_schemes(scheme_idx);
-    
-                count_vals = rho_vals;
-    
-                for constraint_idx = 1:length(constraints)
-                    constraint = constraints(constraint_idx);
-                    data_idx_seq = length(constraints)*(1:iter_length) - (length(constraints)-constraint_idx);
-                    % Plot pseudoplots for legend symbols.
-    
-                    fig1 = figure;
-                    set(fig1,'Position',[100,100,450,450])
-                    ax = gca;
-                    hold(ax, 'on');
-                    
-                    for count_idx = data_idx_seq
-                        strat = all_strats(count_idx);
-                        split_str = split(strat);
-                        iter_key = join(split_str(2:end), " ");
-    
-                        if contains(strat, exclude)
-                            continue
-                        end
-    
-                        plot(ax, nan,nan,'color',colorMap(iter_key),'LineWidth',2);
-                    end
-    
-                    plot(ax, nan,nan,'x','color','black');
-    
-                    x_axis_series = rho_vals;
-                    plot_line_width = 1.5;
-    
-                    for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
-                        strat = all_strats(strat_idx);
-                        split_str = split(strat);
-                        iter_key = join(split_str(2:end), " ");
-    
-                        % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                        plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                        % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                    end
-    
-                    xlabel('$$\rho$$','Interpreter','latex')
-                    ylabel(" ")
-    
-                    title('$$\hat{'+params_latex(param_idx)+'}$$','Interpreter','latex')
-    
-                    ax.FontSize = 15;          % font size
-                    ax.YScale = 'log';          % log scale if needed
-                    grid(ax, 'on');             % turn on grid
-    
-                    legend(ax, [all_strats(data_idx_seq)',"MSE"], 'Location', 'best')
-                    
-                    grid on
-    
-                    y_lower = 10^(-0.25)*min(all_vals,[],"all");
-                    y_upper = 1.05*max(all_vals,[],"all");
-                    ylim([y_lower,y_upper]);
-    
-                    % Save the figure.
-                    if save_images
-                        save_folder = folder_path + constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp);
-                        if ~exist(save_folder, 'dir')
-                            mkdir(save_folder);
-                        end
-                        exportgraphics(fig1, fullfile(save_folder, sprintf(constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp) + "_" + params_text(param_idx) + "_" + selected_schemes(scheme_idx) + ".png")), 'Resolution', 300);
-                    end
-                end
-            end
-        end
-    end
-end
-
-%%% overlaid plots
-for agent_db_idx = 1:length(agent_db_values)
-    for param_idx = 1:2
-        % Collect all plot values for y-axis scaling.
-        all_vals = [avg_dep_crlb(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-            avg_dep_var(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-            avg_dep_mse(:,agent_db_idx,:,param_idx,:,1:sensor_dimension)
-            ];
-
-        for scheme_idx = 1:length(selected_schemes)
-            scheme = selected_schemes(scheme_idx);
-
-            % set(fig1,'Position',[0,0,1920,1080], 'Name', params_text(param_idx) + " hat | " + constraints(1) + " | alpha = " + alpha_true + ", t0 = " + t0_true + ", Tp = " + Tp + ", T0 = " + T0, 'NumberTitle', 'off')
-            % tiledlayout(1,length(constraints));
-
-            count_vals = sensor_vals;
-
-            for constraint_idx = 1:length(constraints)
-                constraint = constraints(constraint_idx);
-                data_idx_seq = length(constraints)*(1:iter_length) - (length(constraints)-constraint_idx);
-                % Plot pseudoplots for legend symbols.
-
-                fig1 = figure;
-                set(fig1,'Position',[100,100,450,450])
-                ax = gca;
-                hold(ax, 'on');
-
-                lgd = [];
-
-                for count_idx = data_idx_seq
-                    strat = all_strats(count_idx);
-                    split_str = split(strat);
-                    iter_key = join(split_str(2:end), " ");
-
-                    lgd = [lgd iter_key];
-
-                    plot(ax, nan,nan,'color',colorMap(iter_key),'LineWidth',2);
-                end
-
-                plot(ax, nan,nan,'^','color','black');
-                plot(ax, nan,nan,'x','color','black');
-                plot(ax, nan,nan,'o','color','black');
-
-                x_axis_series = channel_db_values(scheme_idx,:,agent_db_idx);
-                plot_line_width = 1.5;
-
-                for count_idx = 1:length(count_vals)
-                    for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
-                        strat = all_strats(strat_idx);
-                        split_str = split(strat);
-                        iter_key = join(split_str(2:end), " ");
-
-                        plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                        plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                        plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                    end
-                end
-                % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color','black','LineWidth', plot_line_width)
-                % plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color','black','LineWidth', plot_line_width)
-                % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color','black','LineWidth', plot_line_width)
-
-                xlabel('Channel SNR (dB)')
-                ylabel(" ")
-
-                title('$$\hat{'+params_latex(param_idx)+'}$$','Interpreter','latex')
-
-                ax.FontSize = 15;          % font size
-                ax.YScale = 'log';          % log scale if needed
-                grid(ax, 'on');             % turn on grid
-
-                legend(ax, [lgd, "VAR","MSE","CRLB"], 'Location', 'ne')
-
-                grid on
-
-                y_lower = 10^(-0.25)*min(all_vals,[],"all");
-                y_upper = 1.05*max(all_vals,[],"all");
-                ylim([y_lower,y_upper]);
-
-                % Save the figure.
-                if save_images
-                    save_folder = folder_path + "overlaid";
-                    if ~exist(save_folder, 'dir')
-                        mkdir(save_folder);
-                    end
-                    exportgraphics(fig1, fullfile(save_folder, sprintf("overlaid" + "_" + constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp) + "_" + params_text(param_idx) + "_" + selected_schemes(scheme_idx) + ".png")), 'Resolution', 300);
-                end
-            end
-
-            % if param_idx == 1
-            %     for constraint_idx = 1:length(constraints)
-            %         %%% Plot histogram of coefficients
-            %         fig2 = figure;
-            %         set(fig2,'Position',[0,0,1920,1080])
-            %         tiledlayout(2,4);
-            %         data_idx_seq = length(constraints)*(1:iter_length) - (length(constraints)-constraint_idx);
-            % 
-            %         for idx = data_idx_seq
-            %             strat = all_strats(idx);
-            %             ax2 = nexttile;
-            %             bar(ax2, opt_coeffs(idx,:,:,1));
-            %             title(strat)
-            %         end
-            %         sgtitle(scheme + " " + constraints(constraint_idx))
-            %     end
-            % end
-        end
-    end
-end
-
-% %% individual homog and hetero plots
+% %% overlaid plots
 % for agent_db_idx = 1:length(agent_db_values)
+%     selected_strat_idxs = [find(contains(all_strats, "fmincon"))].';
 %     for param_idx = 1:2
 %         % Collect all plot values for y-axis scaling.
-%         all_vals = [avg_dep_crlb(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-%             avg_dep_var(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-%             avg_dep_mse(:,agent_db_idx,:,param_idx,:,1:sensor_dimension)
-%             ];
+%         all_vals = [avg_dep_crlb(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+%                     avg_dep_var(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+%                     avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension)
+%                     ];
 % 
 %         for scheme_idx = 1:length(selected_schemes)
 %             scheme = selected_schemes(scheme_idx);
-% 
 % 
 %             % set(fig1,'Position',[0,0,1920,1080], 'Name', params_text(param_idx) + " hat | " + constraints(1) + " | alpha = " + alpha_true + ", t0 = " + t0_true + ", Tp = " + Tp + ", T0 = " + T0, 'NumberTitle', 'off')
 %             % tiledlayout(1,length(constraints));
@@ -952,10 +867,116 @@ end
 % 
 %             for constraint_idx = 1:length(constraints)
 %                 constraint = constraints(constraint_idx);
+%                 data_idx_seq = intersect(selected_strat_idxs, numel(iter_arr)*(constraint_idx-1) + (1:numel(iter_arr)), 'stable');
+%                 % Plot pseudoplots for legend symbols.
 % 
-%                 data_idx_seq = 3*(1:iter_length) - (3-constraint_idx);
-%                 hetero_seq = data_idx_seq([1,2,5,6]);
-%                 homog_seq = data_idx_seq([3,4,7,8]);
+%                 fig1 = figure;
+%                 set(fig1,'Position',[100,100,450,450])
+%                 ax = gca;
+%                 hold(ax, 'on');
+% 
+%                 lgd = [];
+% 
+%                 for count_idx = data_idx_seq
+%                     strat = all_strats(count_idx);
+%                     split_str = split(strat);
+%                     iter_key = join(split_str(2:end), " ");
+% 
+%                     lgd = [lgd iter_key];
+% 
+%                     plot(ax, nan,nan,'color',colorMap(iter_key),'LineWidth',2);
+%                 end
+% 
+%                 plot(ax, nan,nan,'^','color','black');
+%                 plot(ax, nan,nan,'x','color','black');
+%                 plot(ax, nan,nan,'o','color','black');
+% 
+%                 x_axis_series = channel_db_values(scheme_idx,:,agent_db_idx);
+%                 plot_line_width = 1.5;
+% 
+%                 for count_idx = 1:length(count_vals)
+%                     for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
+%                         strat = all_strats(strat_idx);
+%                         split_str = split(strat);
+%                         iter_key = join(split_str(2:end), " ");
+% 
+%                         plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
+%                         plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
+%                         plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
+%                     end
+%                 end
+%                 % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color','black','LineWidth', plot_line_width)
+%                 % plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color','black','LineWidth', plot_line_width)
+%                 % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color','black','LineWidth', plot_line_width)
+% 
+%                 xlabel('Channel SNR (dB)')
+%                 ylabel(" ")
+% 
+%                 title('$$\hat{'+params_latex(param_idx)+'}$$','Interpreter','latex')
+% 
+%                 ax.FontSize = 15;          % font size
+%                 ax.YScale = 'log';          % log scale if needed
+%                 grid(ax, 'on');             % turn on grid
+% 
+%                 legend(ax, [lgd, "VAR","MSE","CRLB"], 'Location', 'ne')
+% 
+%                 grid on
+% 
+%                 y_lower = 10^(-0.25)*min(all_vals,[],"all");
+%                 y_upper = 1.05*max(all_vals,[],"all");
+%                 ylim([y_lower,y_upper]);
+% 
+%                 % Save the figure.
+%                 if save_images
+%                     save_folder = folder_path + "overlaid";
+%                     if ~exist(save_folder, 'dir')
+%                         mkdir(save_folder);
+%                     end
+%                     exportgraphics(fig1, fullfile(save_folder, sprintf("overlaid" + "_" + constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp) + "_" + params_text(param_idx) + "_" + selected_schemes(scheme_idx) + ".png")), 'Resolution', 300);
+%                 end
+%             end
+% 
+%             % if param_idx == 1
+%             %     for constraint_idx = 1:length(constraints)
+%             %         %%% Plot histogram of coefficients
+%             %         fig2 = figure;
+%             %         set(fig2,'Position',[0,0,1920,1080])
+%             %         tiledlayout(2,4);
+%             %         data_idx_seq = length(constraints)*(1:iter_length) - (length(constraints)-constraint_idx);
+%             % 
+%             %         for idx = data_idx_seq
+%             %             strat = all_strats(idx);
+%             %             ax2 = nexttile;
+%             %             bar(ax2, opt_coeffs(idx,:,:,1));
+%             %             title(strat)
+%             %         end
+%             %         sgtitle(scheme + " " + constraints(constraint_idx))
+%             %     end
+%             % end
+%         end
+%     end
+% end
+
+% %% individual homog and hetero plots
+% for agent_db_idx = 1:length(agent_db_values)
+%     for param_idx = 1:2
+%         % Collect all plot values for y-axis scaling.
+%         all_vals = [avg_dep_crlb(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+%                     avg_dep_var(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+%                     avg_dep_mse(:,agent_db_idx,:,param_idx,:,1:sensor_dimension)
+%                     ];
+% 
+%         for scheme_idx = 1:length(selected_schemes)
+%             scheme = selected_schemes(scheme_idx);
+% 
+%             count_vals = sensor_vals;
+% 
+%             for constraint_idx = 1:length(constraints)
+%                 constraint = constraints(constraint_idx);
+% 
+%                 data_idx_seq = numel(iter_arr)*(constraint_idx-1) + (1:numel(iter_arr));
+%                 hetero_seq = data_idx_seq(1:(numel(data_idx_seq)/2));
+%                 homog_seq = data_idx_seq((numel(data_idx_seq)/2+1):end);
 % 
 %                 for seq_type_idx = 1:2
 %                     if seq_type_idx == 1
@@ -1016,10 +1037,10 @@ end
 %                     ax.YScale = 'log';          % log scale if needed
 %                     grid(ax, 'on');             % turn on grid
 % 
-%                     if constraint == "sum"
-%                         legend_strats = unique(tr + " " + ap);
-%                         legend(ax, [legend_strats([4,2,3,1])',"VAR","MSE","CRLB"], 'Location', 'ne')
-%                     end
+%                     % if constraint == "total"
+%                     legend_strats = unique(tr + " " + ap);
+%                     legend(ax, [all_strats(my_seq)',"VAR","MSE","CRLB"], 'Location', 'ne')
+%                     % end
 % 
 %                     grid on
 % 
@@ -1053,15 +1074,15 @@ else
     indiv_energy_vals = ai.^2 .* (C1i - (C2i.^2 ./ T0));
 end
 
-sum_cond = sum(indiv_energy_vals) - E_total;
+total_cond = sum(indiv_energy_vals) - E_total;
 indiv_cond = (indiv_energy_vals - Ei_max)';
 
-if contains(strat, "sum")
-    c = [sum_cond];
+if contains(strat, "total")
+    c = [total_cond];
 elseif contains(strat, "indiv.")
     c = indiv_cond;
 elseif contains(strat, "mixed")
-    c = [sum_cond; indiv_cond];
+    c = [total_cond; indiv_cond];
 else
     error("Unknown experiment specified!")
 end
