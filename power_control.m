@@ -1,9 +1,9 @@
-% Clear all variables and close all exisiting figures.
+% Clear all variables and close all existing figures.
 clear all
 close all
 
 % Choose which experiment to run.
-experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_diff_rho"];
+experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_diff_rho", "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped", "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"];
 experiment = "cwe_disjoint_peak_power_opt";
 
 msg = ['Running ' char(experiment)];
@@ -19,7 +19,7 @@ seed = 264;
 disp(seed);
 rng(seed);
 
-nDeployments = 15;
+nDeployments = 10;
 % Set the number of measurements per sensor, starting from 0
 K = 301;
 % Set number of trials.
@@ -50,9 +50,9 @@ f = 0:fs/(2*L):fs/2;
 omega = 2*pi*f;
 
 % Calculate the signal energy (such that the signal is assumed to be within the
-% interioir fo the observation period).
+% interior to the observation period).
 func = @(t) abs(sensor_signal(t)).^2;
-P_s = integral(func,0,T0)/T0;
+Ps = integral(func,0,T0)/T0;
 
 % Define true parameter values.
 alpha_true = 2;
@@ -71,7 +71,7 @@ max_tpi = 0.02;
 min_tpi = 0;
 
 % Set maximum value of t0 such that the signal from each sensor is guaranteed to
-% be in the interioir of the observation period.
+% be in the interior of the observation period.
 t0_max = T0-Tp-max_ti-max_tpi;
 
 if t0_true > t0_max
@@ -90,7 +90,6 @@ all_gi = (randn(1,max_sensor_limit,1,nDeployments) + 1i*randn(1,max_sensor_limit
 % Generate mi and ti.
 all_mi = sort(unifrnd(min_mi,max_mi,1,max_sensor_limit,1,nDeployments),2,'descend');
 all_ti = sort(unifrnd(min_ti,max_ti,1,max_sensor_limit,1,nDeployments),2,'ascend');
-
 all_tpi = zeros(1,max_sensor_limit,1,nDeployments);
 
 selected_schemes = ["EPC"];
@@ -114,70 +113,86 @@ all_strats = [];
 if contains(experiment, "diff_rho")
     % Define channel snr values.
     channel_snr = 15; %%% TODO: need to make this dynamic
-    rho_vals = [0.3, 0.66, 1, 1.33, 1.66, 2];
+    rho_vals = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
     constraints = ["total"]; % "total", "indiv.", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
-    approaches = ["surr. approx", "fmincon"]; % "surr. approx.", "fmincon"
-elseif contains(experiment, "bottom_clipping")
-    channel_snr = linspace(0,20,5);
-    rho_vals = 0.3;
+    approaches = ["prop. scaling", "asymp. approx.", "opt."]; % "asymp. approx.", "opt."
 
-    constraints = ["total"]; % "total", "indiv.", "mixed"
-    transforms = ["linear", "affine"]; % "linear", "affine"
-    coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
-    approaches = ["surr. approx", "fmincon"]; % "surr. approx.", "fmincon"
-else
-    channel_snr = [15,20,30]; % linspace(0,20,5);
-    rho_vals = 0.3;
+elseif contains(experiment, "bottom_clipping_nonclipped")
+    channel_snr = linspace(0,18,5);
+    rho_vals = 0.5;
     
-    constraints = ["indiv."]; % "total", "indiv.", "mixed"
-    transforms = ["affine"]; % "linear", "affine"
-    coeff_types = ["homog."];  % "homog.", "hetero."
-    approaches = ["surr. approx."]; % "surr. approx.", "fmincon"
-end
+    constraints = ["indiv."]; % "indiv.", "total", "mixed"
+    transforms = ["linear", "affine"]; % "linear", "affine"
+    coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
+    approaches = ["prop. scaling", "asymp. approx.", "opt."]; % "asymp. approx.", "opt."
 
-% constraints = ["none"]; % "total", "indiv.", "mixed"
-% transforms = ["none"]; % "linear", "affine"
-% coeff_types = ["none"];  % "homog.", "hetero."
-% approaches = ["none"]; % "surr. approx.", "fmincon"
-% 
-% [sub_c, tr, ct, ap] = ndgrid(constraints, transforms, coeff_types, approaches);
-% 
-% iter_arr = ct + " " + tr + " " + ap;
-% all_strats = sub_c + " " + iter_arr;
-% all_strats = all_strats(:);   % flatten into list
+elseif contains(experiment, "bottom_clipping_clipped")
+    channel_snr = linspace(0,18,5);
+    rho_vals = 0.1;
+    
+    constraints = ["indiv."]; % "indiv.", "total", "mixed"
+    transforms = ["linear", "affine"]; % "linear", "affine"
+    coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
+    approaches = ["prop. scaling", "asymp. approx.", "opt."]; % "asymp. approx.", "opt."
+
+else
+    channel_snr = linspace(0,18,5);
+    rho_vals = 0.5;
+    
+    constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
+    transforms = ["linear", "affine"]; % "linear", "affine"
+    coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
+    approaches = ["prop. scaling", "asymp. approx.", "opt."]; % "prop. scaling", "asymp. approx.", "opt."
+end
 
 iter_arr = [];
 all_strats = [];
 
 for i = 1:numel(constraints)
-    for j = 1:numel(coeff_types)
-        for h = 1:numel(transforms)
-            for l = 1:numel(approaches)
-                % do not include homog. surr. approx in strats
-                if coeff_types(j) == 'homog.' && approaches(l) == 'fmincon'
+    for j = 1:numel(approaches)
+        for k = 1:numel(coeff_types)
+            for l = 1:numel(transforms)
+                % if constraints(i) == "indiv."
+                %     if coeff_types(k) == "homog." && approaches(j) == "asymp. approx."
+                %         continue
+                %     end
+                % end
+
+                if constraints(i) ~= "indiv."
+                    if coeff_types(k) == "hetero." && approaches(j) == "prop. scaling"
+                        continue
+                    end
+                end
+
+                if coeff_types(k) == "homog." && approaches(j) == "asymp. approx."
+                        continue
+                end
+
+                % do not include homog. asymp. approx in strats
+                if coeff_types(k) == "homog." && approaches(j) == "opt."
                     continue
 
-                elseif contains(experiment, "diff_rho") && coeff_types(j) == 'hetero.' && approaches(l) == 'surr. approx'
+                elseif contains(experiment, "diff_rho") && coeff_types(k) == 'hetero.' && approaches(j) == 'asymp. approx'
                     continue
 
                 else
                 % if true
                     if i == 1
-                        iter_arr = [iter_arr; coeff_types(j) + " " + transforms(h) + " " + approaches(l)];
+                        iter_arr = [iter_arr; coeff_types(k) + " " + transforms(l) + " " + approaches(j)];
                     end
-                    all_strats = [all_strats; constraints(i) + " " + coeff_types(j) + " " + transforms(h) + " " + approaches(l)];
+                    all_strats = [all_strats; constraints(i) + " " + coeff_types(k) + " " + transforms(l) + " " + approaches(j)];
                 end 
             end
         end
     end
 end
 
-% if ~contains(experiment, "diff_rho")
-%     all_strats = [all_strats; "indiv. bottom clipping"];
-% end
+if contains(experiment, "bottom_clipping")
+    all_strats = [all_strats; "indiv. bottom clipping"];
+end
 
 iter_length = length(transforms) * length(coeff_types) * length(approaches);
 
@@ -199,6 +214,11 @@ empirical_sensor_energy = zeros(num_strats,max(sensor_vals),1,nDeployments);
 
 clean_y_arr = zeros(num_strats,K,1,nDeployments);
 
+disp("Initializing parallel pooling...")
+if isempty(gcp('nocreate'))
+    parpool('Processes');
+end
+
 % Start run timer
 disp("Starting runtime...")
 loopTic = tic;
@@ -212,7 +232,7 @@ for rho_idx = 1:length(rho_vals)
         % Set sensor noise power. Note the factor of 1/dt, which is equivalent to
         % applying an anti-aliasing filter.
         w_psd_constant = 1;
-        gamma_w = (dt/w_psd_constant) * (P_s / db2magTen(agent_db));
+        gamma_w = (dt/w_psd_constant) * (Ps / db2magTen(agent_db));
         scaled_w = sqrt(gamma_w * w_psd_constant /dt) * all_w; % --> variance of this should be gamma_w/dt
         scaled_w_psd_constant = gamma_w * w_psd_constant; %% = Nw/2
     
@@ -242,47 +262,13 @@ for rho_idx = 1:length(rho_vals)
                 [qgi,~] = quantize_comp(gi,M);
 
                 E0 = sum(util_functions.sensor_signal(t-t0_true, Tp, norm_fact).^2 .* dt, 1);
-                Ei = mi.^2 .* E0;
+                % Ei = mi.^2 .* E0;
 
                 Mi = alpha_true .* mi.^2 .* E0;
                 Gamma_i = gamma_w .* mi.^2 .* E0;
     
                 noisy_unified_xi = alpha_true .* (mi .* util_functions.sensor_signal(t-t0_true, Tp, norm_fact)) + scaled_w(:,1:S,:,:);
 
-                % clean_unified_xi = alpha_true .* (mi .* util_functions.sensor_signal(t-t0_true, Tp, norm_fact));
-                % [~, clean_ui_1] = util_functions.mf_integral_fft(clean_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
-                % clean_ui = pagetranspose(clean_ui_1);
-
-                % [~, wi_tilde] = util_functions.mf_integral_fft(scaled_w(:,1:S,:,:), mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
-    
-                %%% Compute energy expressions
-                % disp("Computing energy constraint expressions...")
-    
-                %%% vector energy expressions
-                % vect_Rs0 = pagemtimes(util_functions.sensor_signal(t-t0_true, Tp, norm_fact)', util_functions.sensor_signal(t-three_dim_t, Tp, norm_fact)) * dt;
-                % vect_int_Rs0 = sum(vect_Rs0) * dt;
-                % int_Rs0 = vect_int_Rs0;
-                % 
-                % vect_int_Rs0_sqrd = sum(vect_Rs0.^2) * dt;
-                % int_Rs0_sqrd = vect_int_Rs0_sqrd;
-                % 
-                % vect_gamma_i = sum(mi.^2 .* util_functions.sensor_signal(t-ti-three_dim_t, Tp, norm_fact).^2, 1) * dt;
-                % vect_int_gamma_i = sum(vect_gamma_i,3)*dt;
-                % int_gamma_i = vect_int_gamma_i;
-    
-                % omniscient assumption (hypothetical upper bound on energy)
-                % omni_C1i = alpha_true^2 .* mi.^4 .* int_Rs0_sqrd + scaled_w_psd_constant .* int_gamma_i; % E[ui(t)^2]
-                % omni_C2i = alpha_true .* mi.^2 .* int_Rs0; % E[ui(t)]
-                % omni_Ei_max = omni_C1i;
-                % omni_E_total = sum(omni_Ei_max,2);
-                % 
-                % C1i = omni_C1i;
-                % C2i = omni_C2i;
-                % Ci_tilde = C1i - (C2i.^2)/T0;
-
-                % Ei_max = rho * C1i;
-                % E_total = D_val * sum(Ei_max,2);
-                
                 disp("Computing peak-power values...")
                 
                 Gi = Mi + Gamma_i;
@@ -314,16 +300,16 @@ for rho_idx = 1:length(rho_vals)
                         % Define channel gains and server noise power.
                         if scheme == "MPC"
                             ci = ones(size(gi));
-                            gamma_n = (dt/n_psd_constant) * P_s * E_mi_sqr / db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
+                            gamma_n = (dt/n_psd_constant) * Ps * E_mi_sqr / db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
                         elseif scheme == "EPC"
                             ci = abs(gi);
-                            gamma_n = (dt/n_psd_constant) * P_s * E_mi_sqr * E_mag_g_sqr / db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
+                            gamma_n = (dt/n_psd_constant) * Ps * E_mi_sqr * E_mag_g_sqr / db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
                         elseif scheme == "PPC"
                             ci = qgi;
-                            gamma_n = (dt/n_psd_constant) * P_s * E_mi_sqr * E_mag_g_sqr / db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
+                            gamma_n = (dt/n_psd_constant) * Ps * E_mi_sqr * E_mag_g_sqr / db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
                         elseif scheme == "NPC"
                             ci = gi;
-                            gamma_n = (dt/n_psd_constant) * P_s * E_mi_sqr * E_mag_g_sqr / db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
+                            gamma_n = (dt/n_psd_constant) * Ps * E_mi_sqr * E_mag_g_sqr / db2magTen(channel_db_values(scheme_idx,channel_db_idx,agent_db_idx));
                         end
     
                         % Set server noise power. Note the factor of 1/dt which is
@@ -331,21 +317,21 @@ for rho_idx = 1:length(rho_vals)
                         scaled_n = sqrt( (gamma_n*n_psd_constant/dt) / 2 ) * n;
                         scaled_n_psd_constant = gamma_n * n_psd_constant; % == N0/2
     
-                        epsilon = 0.0001;
+                        epsilon = 1e-4;
                         norm_fact = 1;
                         Bee = pi/Tp;
     
                         mag_sqr_S0_internal = @(w) (norm_fact^2) * (2*Bee.^2 .* (1 + cos(w.*pi./Bee)) ) ./ (w.^2 - Bee.^2).^2;
                         mag_sqr_S0 = @(w) util_functions.zeroIfnan(mag_sqr_S0_internal(w)) + (w == Bee | w == -Bee) .* (mag_sqr_S0_internal(w-epsilon) + mag_sqr_S0_internal(w+epsilon))./2;
-                        mag_sqr_SHdI_anon = @(w) 1 ./ (Gamma + mag_sqr_S0(w));
+                        % mag_sqr_SHdI_anon = @(w) 1 ./ (Gamma + mag_sqr_S0(w));
     
                         %%%%%%%%%%%%%%%%% Define Anonymous Expressions %%%%%%%%%%%%%%%%%
                         if contains(experiment, "cwe") || experiment == "random_dropout"
                             if (scheme == "MPC" || scheme == "EPC")
-                                V_arr_internal = @(w, ai, mi, ci) scaled_w_psd_constant .* sum(ci.^2 .* ai.^2 .* mi.^2, 2) .* mag_sqr_S0_internal(w); % + scaled_n_psd_constant/2;
+                                V_arr_internal = @(w, ai, mi, ci) scaled_w_psd_constant .* sum(ci.^2 .* ai.^2 .* mi.^2, 2) .* mag_sqr_S0_internal(w) + scaled_n_psd_constant/2;
                                 V_arr = @(w, ai, mi, ci) util_functions.zeroIfnan(V_arr_internal(w, ai, mi, ci)) + (w == Bee | w == -Bee) .* (V_arr_internal(w-epsilon, ai, mi, ci) + V_arr_internal(w+epsilon, ai, mi, ci))./2;
     
-                                H_arr_internal = @(w, ai, mi, ci) 1./ V_arr_internal(w, ai, mi, ci);
+                                H_arr_internal = @(w, ai, mi, ci) (1 + epsilon) ./ (V_arr_internal(w, ai, mi, ci) + epsilon);
                                 H_arr = @(w, ai, mi, ci) util_functions.zeroIfnan(H_arr_internal(w, ai, mi, ci)) + (w == Bee | w == -Bee) .* (H_arr_internal(w-epsilon, ai, mi, ci) + H_arr_internal(w+epsilon, ai, mi, ci))./2;
     
                                 alpha_objective_array = @(ai, mi, ci) (2*pi) ./( ((sum(ci .* ai .* mi.^2)).^2) .* integral(@(w) (mag_sqr_S0(w)).^2 / V_arr(w, ai, mi, ci), -Inf, Inf, 'ArrayValued', true));
@@ -374,62 +360,70 @@ for rho_idx = 1:length(rho_vals)
                                         % opt_bi = (sum(Gi,2) + sqrt(sum(Gi,2).^2 - S*(sum(Gi.^2,2)-P_max))) ./ S; 
 
                                     %%% TOTAL ENERGY CONSTRAINT
-                                    elseif contains(strat, "total homog. linear")
+                                    elseif contains(strat, "total homog. linear prop. scaling")
                                         opt_ai = sqrt(P_max ./ sum(Ci_linear,2));
                                         opt_bi = 0;
         
-                                    elseif contains(strat, "total homog. affine")
+                                    elseif contains(strat, "total homog. affine prop. scaling")
                                         opt_ai = sqrt(P_max ./ sum(Ci_affine, 2));
                                         opt_bi = opt_ai .* Mi ./ 2;
         
-                                    elseif contains(strat, "total hetero. linear")
+                                    elseif contains(strat, "total hetero. linear asymp. approx.")
                                         opt_ai = (1./ci) .* sqrt(P_max ./ sum(Ci_linear ./ ci.^2, 2));
                                         opt_bi = 0;
         
-                                    elseif contains(strat, "total hetero. affine")
+                                    elseif contains(strat, "total hetero. affine asymp. approx.")
                                         opt_ai = (1./ci) .* sqrt(P_max ./ sum(Ci_affine ./ ci.^2, 2));
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     %%% INDIVIDUAL ENERGY CONSTRAINT
-                                    elseif contains(strat, "indiv. homog. linear")
+                                    elseif contains(strat, "indiv. homog. linear prop. scaling")
                                         opt_ai = min(Ai_linear, [], 2);
                                         opt_bi = 0;
         
-                                    elseif contains(strat, "indiv. homog. affine")
+                                    elseif contains(strat, "indiv. homog. affine prop. scaling")
                                         opt_ai = min(Ai_affine, [], 2);
                                         opt_bi = opt_ai .* Mi ./ 2;
+
+                                    elseif contains(strat, "indiv. hetero. linear prop. scaling")
+                                        opt_ai = Ai_linear;
+                                        opt_bi = 0;
+
+                                    elseif contains(strat, "indiv. hetero. affine prop. scaling")
+                                        opt_ai = Ai_affine;
+                                        opt_bi = opt_ai .* Mi ./ 2;
         
-                                    elseif contains(strat, "indiv. hetero. linear")
+                                    elseif contains(strat, "indiv. hetero. linear asymp. approx.")
                                         [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
                                         opt_ai = Gamma_linear ./ ci;
                                         opt_bi = 0;
         
-                                    elseif contains(strat, "indiv. hetero. affine")
+                                    elseif contains(strat, "indiv. hetero. affine asymp. approx.")
                                         [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
                                         opt_ai = Gamma_affine ./ ci;
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     %%% MIXED ENERGY CONSTRAINT
-                                    elseif contains(strat, "mixed homog. linear")
+                                    elseif contains(strat, "mixed homog. linear prop. scaling")
                                         indiv_cond = min(Ai_linear, [], 2);
                                         sum_cond = sqrt(P_max ./ sum(Ci_linear,2));
         
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
                                         opt_bi = 0;
-                                    elseif contains(strat, "mixed homog. affine")
+                                    elseif contains(strat, "mixed homog. affine prop. scaling")
                                         indiv_cond = min(Ai_affine, [], 2);
                                         sum_cond = sqrt(P_max ./ sum(Ci_affine, 2));
         
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
                                         opt_bi = opt_ai .* Mi ./ 2;
-                                    elseif contains(strat, "mixed hetero. linear")
+                                    elseif contains(strat, "mixed hetero. linear asymp. approx.")
                                         [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
                                         sum_cond_linear = sqrt(P_max ./ sum(Ci_linear ./ ci.^2, 2));
                                         mixed_cond_linear = [Gamma_linear sum_cond_linear];
         
                                         opt_ai = min(mixed_cond_linear, [], 2) ./ ci;
                                         opt_bi = 0;
-                                    elseif contains(strat, "mixed hetero. affine")
+                                    elseif contains(strat, "mixed hetero. affine asymp. approx.")
                                         [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
                                         sum_cond_affine = sqrt(P_max ./ sum(Ci_affine ./ ci.^2, 2));
                                         mixed_cond_affine = [Gamma_affine sum_cond_affine];
@@ -439,12 +433,12 @@ for rho_idx = 1:length(rho_vals)
                                     end
                                     %%% end mixed energy constraint
                                 end
-                                % Store coeffs if using surr. approx
-                                if ~contains(strat, "fmincon") % contains(strat, "surr. approx")
+                                % Store coeffs if using asymp. approx
+                                if ~contains(strat, "opt.") % contains(strat, "asymp. approx")
                                     opt_coeffs(strat_idx,1:S,:,:) = opt_ai .* ones(size(opt_coeffs(strat_idx,1:S,:,:)));
                                     opt_coeffs(strat_idx,S+1:end,:,:) = opt_bi .* ones(size(opt_coeffs(strat_idx,1:S,:,:)));
                                 % Run fminsearch
-                                elseif contains(strat, "fmincon")
+                                elseif contains(strat, "opt.")
                                     % Define parameters for fminsearch
                                     options = optimoptions('fmincon','Display','off','Algorithm','sqp');
                                     opt_coeffs_cell = cell(1, nDeployments);
@@ -452,7 +446,7 @@ for rho_idx = 1:length(rho_vals)
                                     % run fmincon using parallelization
                                     parfor dep_idx = 1:nDeployments
                                         % x0 only depends on ai, bi values are just placeholders here
-                                        % use surr. approx. as starting point (where applicable)
+                                        % use asymp. approx. as starting point (where applicable)
                                         if contains(strat, "homog. linear")
                                             % x0 = [opt_ai(:,:,:,dep_idx) 0];
                                             x0 = [1 0];
@@ -464,7 +458,7 @@ for rho_idx = 1:length(rho_vals)
                                             x0 = [ones(1,S) zeros(1,S)];
                                         elseif contains(strat, "hetero. affine")
                                             % x0 = [opt_ai(:,:,:,dep_idx) ones(1,S)];
-                                            x0 = [ones(1,2*S)]
+                                            x0 = [ones(1,2*S)];
                                         end
         
                                         dep_ci = ci(:,:,:,dep_idx);
@@ -472,7 +466,7 @@ for rho_idx = 1:length(rho_vals)
                                         dep_Mi = Mi(:,:,:,dep_idx);
                                         dep_Gamma_i = Gamma_i(:,:,:,dep_idx);
                                         
-                                        if numel(Pi_max) == 1
+                                        if isscalar(Pi_max)
                                             dep_Pi_max = Pi_max;
                                             dep_P_max = P_max;
                                         else
@@ -488,7 +482,6 @@ for rho_idx = 1:length(rho_vals)
                                         % nonlcon = @(x) fmincon_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, Ei_max(:,:,:,dep_idx), E_total(:,:,:,dep_idx), strat, D_val);
                                         nonlcon = @(x) fmincon_constraints(x, dep_Mi, dep_Gamma_i, dep_Pi_max, dep_P_max, strat);
                                         
-        
                                         % compute optimal ai and bi using weighted sum objective function
                                         for jj = 1:length(alpha_weight_vals)
                                             alpha_weight = alpha_weight_vals(jj);
@@ -501,12 +494,13 @@ for rho_idx = 1:length(rho_vals)
         
                                             % assign ai
                                             local_coeffs(1:S) = optimal_x(1:length(optimal_x)/2);
+
                                             % assign bi
                                             % local_coeffs(S+1:end) = optimal_x((length(optimal_x)/2)+1:end);
                                             if contains(strat, "linear")
                                                 local_coeffs(S+1:end) = 0;
                                             elseif contains(strat, "affine")
-                                                local_coeffs(S+1:end) = local_coeffs(1:S) .* Mi(:,:,:,dep_idx) ./ 2;
+                                                local_coeffs(S+1:end) = local_coeffs(1:S) .* dep_Mi ./ 2;
                                             end
                                         end
                                         opt_coeffs_cell{dep_idx} = local_coeffs;
@@ -527,30 +521,37 @@ for rho_idx = 1:length(rho_vals)
     
                         %%%%%%%%%%%%%%%%% ESTIMATION %%%%%%%%%%%%%%%%%
                         total_est_start = tic;
+
+                        % Compute ui here so we don't have to recompute FFT for each strat
+                        [~, ui] = mf_integral_fft(noisy_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
+                        % Define search space for t0
+                        t0_search_space = repmat(reshape(t,1,1,[]), 1,1,1,nDeployments);
+                        [~, ui_t0_search] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), 1, 1, K, dt, Tp);
+                        % Precompute FFT for matched filter template
+                        mfTemplate = mi .* util_functions.sensor_signal(t, Tp, norm_fact);
+                        % FFT size = 2*K - 1
+                        N = 2*K - 1;
+                        mfTemplateFFT = fft(mfTemplate, N, 1);
+
                         for strat_idx = 1:num_strats
                             strat = all_strats(strat_idx);
                             disp("Starting ML estimation for " + strat);
     
                             ai = opt_coeffs(strat_idx, 1:S, :, :);
-                            bi = opt_coeffs(strat_idx, S+1:end, :, :);
-    
-                            [~, ui] = mf_integral_fft(noisy_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), ci, ai, K, dt, Tp);
+                            bi = opt_coeffs(strat_idx, S+1:end, :, :);    
 
                             if contains(strat, "bottom clipping")
-                                ui_clip = max(ui-bi, -sqrt(Pi_max));
-                                out_cws = sum(ci .* ui_clip, 2);
+                                ui_clipping = max(ui-bi, -sqrt(Pi_max));
+                                out_cws = sum(ci .* ui_clipping, 2);
+                                clipping_check = reshape((Mi/2 + Gamma_i) > sqrt(Pi_max), 1, []);
                             else
                                 out_cws = sum(ci .* (ai .* ui - bi), 2);
                             end
 
-                            % out_cws = sum(ci .* (ai .* ui - bi), 2);
-
                             cws = pagetranspose(out_cws);
-                            y = cws; %+ pagetranspose(scaled_n(:,1,:,:));
+                            y = cws + pagetranspose(scaled_n(:,1,:,:));
     
                             if contains(experiment, "cwe") || experiment == "random_dropout"
-                                % Define search space for t0
-                                t0_search_space = repmat(reshape(t,1,1,[]), 1,1,1,nDeployments);
                                 % Compute AC-CWE estimates for full phase compensation.
                                 if scheme == "MPC" || scheme == "EPC"
                                     mag_sqr_H = H_arr(omega, ai, mi, ci);
@@ -572,16 +573,10 @@ for rho_idx = 1:length(rho_vals)
                                     %     [max_y_vals,I] = max(mf_with_y, [], 3);
                                     % end
 
-                                    if contains(strat, "clip")
+                                    if contains(strat, "bottom clipping") && any(clipping_check) % sensor signals have been clipped so revert to naive peak search
                                         [max_y_vals,I] = max(abs(real(y)), [], 2);
-
-                                        % [Omega_2_t0_search, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
-                                        % Omega_2_t0_search = reshape(Omega_2_t0_search, K, 1, K, 1, nDeployments);
-                                        % mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
-                                        % [max_y_vals,I] = max(mf_with_y, [], 3);
                                     else
-                                        [Omega_2_t0_search, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
-                                        Omega_2_t0_search = reshape(Omega_2_t0_search, K, 1, K, 1, nDeployments);
+                                        Omega_2_t0_search = reshape(sum(ui_t0_search .* ci .* ai, 2), K, 1, K, 1, nDeployments);
                                         mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
                                         [max_y_vals,I] = max(mf_with_y, [], 3);
                                     end
@@ -621,7 +616,15 @@ for rho_idx = 1:length(rho_vals)
                                     %     denom = dt*dt*pagemtimes(pagemtimes(resh_Omega,resh_Qn),pagetranspose(resh_Omega));
                                     % end
 
-                                    [Omega, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
+                                    % Compute matched filter integral using FFT
+                                    % [Omega, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
+                                    
+                                    Af = fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), N, 1);
+                                    lag0 = Tp/dt;
+                                    Y_tensor =  dt*ifft(Af .* mfTemplateFFT, [], 1);
+                                    ui_tensor = Y_tensor(lag0+1 : (lag0+K), :, :, :);
+                                    Omega = sum(ui_tensor .* ci .* ai, 2);
+                                    
                                     resh_Qn = reshape(Qn_matrix,K,K,1,nDeployments);
                                     resh_Omega = reshape(Omega,1,K,nTrials,nDeployments);
 
@@ -700,9 +703,9 @@ else
     avg_dep_crlb(:,:,:,1,:,:) = avg_dep_crlb(:,:,:,1,:,:);
 
     % normalize time delay metrics
-    avg_dep_var(:,:,:,2,:,:) = avg_dep_var(:,:,:,2,:,:) ./ T0^2;
-    avg_dep_mse(:,:,:,2,:,:) = avg_dep_mse(:,:,:,2,:,:) ./ T0^2;
-    avg_dep_crlb(:,:,:,2,:,:) = avg_dep_crlb(:,:,:,2,:,:) ./ T0^2;
+    avg_dep_var(:,:,:,2,:,:) = avg_dep_var(:,:,:,2,:,:);
+    avg_dep_mse(:,:,:,2,:,:) = avg_dep_mse(:,:,:,2,:,:);
+    avg_dep_crlb(:,:,:,2,:,:) = avg_dep_crlb(:,:,:,2,:,:);
 
     avg_dep_bias = mean(rho_empirical_bias,length(size(rho_empirical_bias)));
 end
@@ -717,7 +720,7 @@ else
         "agent_db_values", "channel_snr", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
         "experiment", "sensor_dimension", "save_images", "K", "nDeployments",...
         "constraints", "transforms", "coeff_types", "approaches", "iter_arr", "iter_length", "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals", "save_images",...
-        "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr", "rho_vals"];
+        "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr", "rho_vals", "Mi", "Gamma_i", "Pi_max"];
     save(experiment + "_results.mat", files_to_save{:})
 end
 
@@ -728,313 +731,99 @@ params_text = ["alpha","t0"];
 RGB = orderedcolors("gem12");
 H = compose("#%02X%02X%02X",round(RGB*255));
 colors = cellstr(H);
-colorMap = containers.Map(cellstr(unique(iter_arr)), colors(1:numel(unique(iter_arr))));
+colorMap = containers.Map(cellstr([unique(iter_arr); "bottom clipping"]), colors(1:numel([unique(iter_arr); "bottom clipping"])));
 
 home_dir = char(java.lang.System.getProperty('user.home'));
 folder_path = home_dir + "\Desktop\Peak Power AirComp Results\";
 
-exclude = ["None"];
+exclude = all_strats(contains(all_strats, "hetero.") & contains(all_strats, "asymp. approx."));
 
-% if contains(experiment, "diff_rho")
-%     %% different rho plots
-%     for agent_db_idx = 1:length(agent_db_values)
-%         channel_db_idx = length(channel_snr);
-%         for param_idx = 1:2
-%             % Collect all plot values for y-axis scaling.
-%             all_vals = [avg_dep_mse(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals))
-%                         % avg_dep_crlb(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
-%                         % avg_dep_var(:,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
-%                         ];
-% 
-%             for scheme_idx = 1:length(selected_schemes)
-%                 scheme = selected_schemes(scheme_idx);
-% 
-%                 count_vals = rho_vals;
-% 
-%                 for constraint_idx = 1:length(constraints)
-%                     constraint = constraints(constraint_idx);
-%                     data_idx_seq = 1:numel(all_strats);
-% 
-%                     % Plot pseudoplots for legend symbols.
-% 
-%                     fig1 = figure;
-%                     set(fig1,'Position',[100,100,450,450])
-%                     ax = gca;
-%                     hold(ax, 'on');
-% 
-%                     for count_idx = data_idx_seq
-%                         strat = all_strats(count_idx);
-%                         split_str = split(strat);
-%                         iter_key = join(split_str(2:end), " ");
-% 
-%                         if contains(strat, exclude)
-%                             continue
-%                         end
-% 
-%                         plot(ax, nan,nan,'color',colorMap(iter_key),'LineWidth',2);
-%                     end
-% 
-%                     plot(ax, nan,nan,'x','color','black');
-% 
-%                     x_axis_series = rho_vals;
-%                     plot_line_width = 1.5;
-% 
-%                     for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
-%                         strat = all_strats(strat_idx);
-%                         split_str = split(strat);
-%                         iter_key = join(split_str(2:end), " ");
-% 
-%                         % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                         plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                         % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                     end
-% 
-%                     xlabel('$$\rho$$','Interpreter','latex')
-%                     ylabel(" ")
-% 
-%                     title('$$\hat{'+params_latex(param_idx)+'}$$','Interpreter','latex')
-% 
-%                     ax.FontSize = 15;          % font size
-%                     ax.YScale = 'log';          % log scale if needed
-%                     grid(ax, 'on');             % turn on grid
-% 
-%                     legend(ax, [all_strats(data_idx_seq)',"MSE"], 'Location', 'best')
-% 
-%                     grid on
-% 
-%                     y_lower = 10^(-0.25)*min(all_vals,[],"all");
-%                     y_upper = 1.05*max(all_vals,[],"all");
-%                     ylim([y_lower,y_upper]);
-% 
-%                     % Save the figure.
-%                     if save_images
-%                         save_folder = folder_path + "diff_rho";
-%                         if ~exist(save_folder, 'dir')
-%                             mkdir(save_folder);
-%                         end
-%                         exportgraphics(fig1, fullfile(save_folder, sprintf(constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp) + "_" + params_text(param_idx) + "_" + selected_schemes(scheme_idx) + ".png")), 'Resolution', 300);
-%                     end
-%                 end
-%             end
-%         end
-%     end
-% 
-% else
-%     %% overlaid plots
-%     for agent_db_idx = 1:length(agent_db_values)
-%         % selected_strat_idxs = [find(contains(all_strats, "fmincon"))].';
-%         % selected_strat_idxs = 1:numel(all_strats);
-%         selected_strat_idxs = find((1:numel(all_strats)) .* ~ismember(all_strats,exclude).');
-%         for param_idx = 1:2
-%             % Collect all plot values for y-axis scaling.
-%             all_vals = [avg_dep_crlb(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-%                         avg_dep_var(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-%                         avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension)
-%                         ];
-% 
-%             for scheme_idx = 1:length(selected_schemes)
-%                 scheme = selected_schemes(scheme_idx);
-% 
-%                 % set(fig1,'Position',[0,0,1920,1080], 'Name', params_text(param_idx) + " hat | " + constraints(1) + " | alpha = " + alpha_true + ", t0 = " + t0_true + ", Tp = " + Tp + ", T0 = " + T0, 'NumberTitle', 'off')
-%                 % tiledlayout(1,length(constraints));
-% 
-%                 count_vals = sensor_vals;
-% 
-%                 for constraint_idx = 1:length(constraints)
-%                     constraint = constraints(constraint_idx);
-%                     data_idx_seq = intersect(selected_strat_idxs, numel(iter_arr)*(constraint_idx-1) + (1:numel(iter_arr)), 'stable');
-%                     % Plot pseudoplots for legend symbols.
-% 
-%                     fig1 = figure;
-%                     set(fig1,'Position',[100,100,450,450])
-%                     ax = gca;
-%                     hold(ax, 'on');
-% 
-%                     lgd = [];
-% 
-%                     for count_idx = data_idx_seq
-%                         strat = all_strats(count_idx);
-%                         split_str = split(strat);
-%                         iter_key = join(split_str(2:end), " ");
-% 
-%                         lgd = [lgd iter_key];
-% 
-%                         plot(ax, nan,nan,'color',colorMap(iter_key),'LineWidth',2);
-%                     end
-%                     % plot(ax, nan,nan,'color','black','LineWidth',2);
-% 
-%                     plot(ax, nan,nan,'^','color','black');
-%                     plot(ax, nan,nan,'x','color','black');
-%                     plot(ax, nan,nan,'o','color','black');
-% 
-%                     x_axis_series = channel_db_values(scheme_idx,:,agent_db_idx);
-%                     plot_line_width = 1.5;
-% 
-%                     for count_idx = 1:length(count_vals)
-%                         for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
-%                             strat = all_strats(strat_idx);
-%                             split_str = split(strat);
-%                             iter_key = join(split_str(2:end), " ");
-% 
-%                             plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                             plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                             plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                         end
-%                     end
-%                     % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color','black','LineWidth', plot_line_width)
-%                     % plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color','black','LineWidth', plot_line_width)
-%                     % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx+1,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color','black','LineWidth', plot_line_width)
-% 
-%                     xlabel('Channel SNR (dB)')
-%                     ylabel(" ")
-% 
-%                     title('$$\hat{'+params_latex(param_idx)+'}$$','Interpreter','latex')
-% 
-%                     ax.FontSize = 15;          % font size
-%                     ax.YScale = 'log';          % log scale if needed
-%                     grid(ax, 'on');             % turn on grid
-% 
-%                     % legend(ax, [lgd, "VAR","MSE","CRLB"], 'Location', 'ne')
-%                     legend(ax, [lgd, "bottom clipping", "MSE"], 'Location', 'ne')
-% 
-%                     grid on
-% 
-%                     y_lower = 10^(-0.25)*min(all_vals,[],"all");
-%                     y_upper = 1.05*max(all_vals,[],"all");
-%                     ylim([y_lower,y_upper]);
-% 
-%                     % Save the figure.
-%                     % if save_images
-%                     %     save_folder = folder_path + "overlaid";
-%                     %     if ~exist(save_folder, 'dir')
-%                     %         mkdir(save_folder);
-%                     %     end
-%                     %     exportgraphics(fig1, fullfile(save_folder, sprintf("overlaid" + "_" + constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp) + "_" + params_text(param_idx) + "_" + selected_schemes(scheme_idx) + ".png")), 'Resolution', 300);
-%                     % end
-%                 end
-% 
-%                 % if param_idx == 1
-%                 %     for constraint_idx = 1:length(constraints)
-%                 %         %%% Plot histogram of coefficients
-%                 %         fig2 = figure;
-%                 %         set(fig2,'Position',[0,0,1920,1080])
-%                 %         tiledlayout(2,4);
-%                 %         data_idx_seq = length(constraints)*(1:iter_length) - (length(constraints)-constraint_idx);
-%                 % 
-%                 %         for idx = data_idx_seq
-%                 %             strat = all_strats(idx);
-%                 %             ax2 = nexttile;
-%                 %             bar(ax2, opt_coeffs(idx,:,:,1));
-%                 %             title(strat)
-%                 %         end
-%                 %         sgtitle(scheme + " " + constraints(constraint_idx))
-%                 %     end
-%                 % end
-%             end
-%         end
-%     end
-% end
-
-% %% individual homog and hetero plots
 % for agent_db_idx = 1:length(agent_db_values)
+%     selected_strat_idxs = find((1:numel(all_strats)) .* ~ismember(all_strats,exclude).');
+%     selected_strats = all_strats(selected_strat_idxs);
 %     for param_idx = 1:2
 %         % Collect all plot values for y-axis scaling.
-%         all_vals = [avg_dep_crlb(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-%                     avg_dep_var(:,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-%                     avg_dep_mse(:,agent_db_idx,:,param_idx,:,1:sensor_dimension)
-%                     ];
+%         all_vals = [avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension)];
+%             %         avg_dep_crlb(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+%             %         avg_dep_var(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension);
+%             %         avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension)
+%             %         ];
 % 
 %         for scheme_idx = 1:length(selected_schemes)
 %             scheme = selected_schemes(scheme_idx);
+% 
+%             % set(fig1,'Position',[0,0,1920,1080], 'Name', params_text(param_idx) + " hat | " + constraints(1) + " | alpha = " + alpha_true + ", t0 = " + t0_true + ", Tp = " + Tp + ", T0 = " + T0, 'NumberTitle', 'off')
+%             % tiledlayout(1,length(constraints));
 % 
 %             count_vals = sensor_vals;
 % 
 %             for constraint_idx = 1:length(constraints)
 %                 constraint = constraints(constraint_idx);
+%                 data_idx_seq = selected_strat_idxs(find(contains(selected_strats, constraint)).');
+%                 % Plot pseudoplots for legend symbols.
 % 
-%                 data_idx_seq = numel(iter_arr)*(constraint_idx-1) + (1:numel(iter_arr));
-%                 hetero_seq = data_idx_seq(1:(numel(data_idx_seq)/2));
-%                 homog_seq = data_idx_seq((numel(data_idx_seq)/2+1):end);
+%                 fig1 = figure;
+%                 set(fig1,'Position',[100,100,450,450])
+%                 ax = gca;
+%                 hold(ax, 'on');
 % 
-%                 for seq_type_idx = 1:2
-%                     if seq_type_idx == 1
-%                         my_seq = hetero_seq;
-%                         coeff_type = "hetero";
-%                     else
-%                         my_seq = homog_seq;
-%                         coeff_type = "homog";
-%                     end
+%                 lgd = [];
 % 
-%                     fig1 = figure;
-%                     ax = gca;
-%                     set(fig1,'Position',[100,100,450,450])
-%                     hold(ax, 'on');
+%                 for count_idx = data_idx_seq
+%                     strat = all_strats(count_idx);
+%                     split_str = split(strat);
+%                     iter_key = join(split_str(2:end), " ");
 % 
-%                     % Plot pseudoplots for legend symbols.
-%                     for count_idx = my_seq
-%                         strat = all_strats(count_idx);
+%                     lgd = [lgd iter_key];
+% 
+%                     plot(ax, nan, nan, 'color', colorMap(iter_key), 'LineWidth', 2);
+%                 end
+% 
+%                 plot(ax, nan,nan,'x','color','black');
+%                 % plot(ax, nan,nan,'^','color','black');
+%                 % plot(ax, nan,nan,'o','color','black');
+% 
+%                 x_axis_series = channel_db_values(scheme_idx,:,agent_db_idx);
+%                 plot_line_width = 1.5;
+% 
+%                 for count_idx = 1:length(count_vals)
+%                     for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
+%                         strat = all_strats(strat_idx);
 %                         split_str = split(strat);
 %                         iter_key = join(split_str(2:end), " ");
 % 
-%                         if contains(strat, exclude)
-%                             continue
-%                         end
-% 
-%                         plot(ax, nan,nan,'color',colorMap(iter_key),'LineWidth',2);
+%                         plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
+%                         % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
+%                         % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
 %                     end
+%                 end
 % 
-%                     plot(ax, nan,nan,'^','color','black');
-%                     plot(ax, nan,nan,'x','color','black');
-%                     plot(ax, nan,nan,'o','color','black');
+%                 xlabel('Channel SNR (dB)')
+%                 ylabel(" ")
 % 
-%                     x_axis_series = channel_db_values(scheme_idx,:,agent_db_idx);
-%                     plot_line_width = 1.5;
+%                 title('$$\hat{'+params_latex(param_idx)+'}$$','Interpreter','latex')
 % 
-%                     for count_idx = 1:length(count_vals)
-%                         for strat_idx = my_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
-%                             strat = all_strats(strat_idx);
-%                             split_str = split(strat);
-%                             iter_key = join(split_str(2:end), " ");
+%                 ax.FontSize = 15;          % font size
+%                 ax.YScale = 'log';          % log scale if needed
+%                 grid(ax, 'on');             % turn on grid
 % 
-%                             if contains(strat, exclude)
-%                                 continue
-%                             end
+%                 legend(ax, [lgd, "MSE"], 'Location', 'best')
 % 
-%                             plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                             plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                             plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
-%                         end
+%                 grid on
+% 
+%                 y_lower = 10^(-0.25)*min(all_vals,[],"all");
+%                 y_upper = 1.05*max(all_vals,[],"all");
+%                 ylim([y_lower,y_upper]);
+% 
+%                 ax.XTick = channel_snr;
+% 
+%                 % Save the figure.
+%                 if save_images
+%                     save_folder = folder_path + "overlaid";
+%                     if ~exist(save_folder, 'dir')
+%                         mkdir(save_folder);
 %                     end
-% 
-%                     xlabel('Channel SNR (dB)')
-%                     ylabel(" ")
-% 
-%                     title('$$\hat{'+params_latex(param_idx)+'}$$','Interpreter','latex')
-% 
-%                     ax.FontSize = 15;          % font size
-%                     ax.YScale = 'log';          % log scale if needed
-%                     grid(ax, 'on');             % turn on grid
-% 
-%                     % if constraint == "total"
-%                     legend_strats = unique(tr + " " + ap);
-%                     legend(ax, [all_strats(my_seq)',"VAR","MSE","CRLB"], 'Location', 'ne')
-%                     % end
-% 
-%                     grid on
-% 
-%                     y_lower = 10^(-0.25)*min(all_vals,[],"all");
-%                     y_upper = 1.05*max(all_vals,[],"all");
-%                     ylim([y_lower,y_upper]);
-% 
-%                     % Save the figure.
-%                     if save_images
-%                         % save_folder = folder_path;
-%                         save_folder = folder_path + "separated";
-%                         if ~exist(save_folder, 'dir')
-%                             mkdir(save_folder);
-%                         end
-%                         exportgraphics(fig1, fullfile(save_folder, sprintf(constraint + "_" + coeff_type + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp) + "_" + params_text(param_idx) + "_" + selected_schemes(scheme_idx) + ".png")), 'Resolution', 300);
-%                     end
+%                     exportgraphics(fig1, fullfile(save_folder, sprintf("overlaid" + "_" + constraint + "_" + experiment + "_" + string(agent_db_values(agent_db_idx)) + "_db_Tp=" + string(Tp) + "_" + params_text(param_idx) + "_" + selected_schemes(scheme_idx) + ".png")), 'Resolution', 300);
 %                 end
 %             end
 %         end
