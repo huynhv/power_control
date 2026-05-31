@@ -4,7 +4,7 @@ close all
 
 % Choose which experiment to run.
 experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_diff_rho", "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped", "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"];
-experiment = "cwe_disjoint_peak_power_opt";
+experiment = "cwe_disjoint_peak_power_opt_diff_weights";
 
 msg = ['Running ' char(experiment)];
 msg_len = strlength(msg);
@@ -79,18 +79,18 @@ if t0_true > t0_max
 end
 
 %%% Always generate w, n, and channel gain for S = 10, then use subsets for different S trials
-max_sensor_limit = 10;
+S_max = max(sensor_vals);
 % Generate sensor noise with dimensions: K x S x trials x deployments.
-all_w = randn(K,max_sensor_limit,nTrials,nDeployments);
+all_w = randn(K,S_max,nTrials,nDeployments);
 % Generate server noise.
-n = (randn(K,max_sensor_limit,nTrials,nDeployments) + 1i*randn(K,max_sensor_limit,nTrials,nDeployments));
+n = (randn(K,S_max,nTrials,nDeployments) + 1i*randn(K,S_max,nTrials,nDeployments));
 % Generate channel gains.
-all_gi = (randn(1,max_sensor_limit,1,nDeployments) + 1i*randn(1,max_sensor_limit,1,nDeployments))/sqrt(2);
+all_gi = (randn(1,S_max,1,nDeployments) + 1i*randn(1,S_max,1,nDeployments))/sqrt(2);
 
 % Generate mi and ti.
-all_mi = sort(unifrnd(min_mi,max_mi,1,max_sensor_limit,1,nDeployments),2,'descend');
-all_ti = sort(unifrnd(min_ti,max_ti,1,max_sensor_limit,1,nDeployments),2,'ascend');
-all_tpi = zeros(1,max_sensor_limit,1,nDeployments);
+all_mi = sort(unifrnd(min_mi,max_mi,1,S_max,1,nDeployments),2,'descend');
+all_ti = sort(unifrnd(min_ti,max_ti,1,S_max,1,nDeployments),2,'ascend');
+all_tpi = zeros(1,S_max,1,nDeployments);
 
 selected_schemes = ["EPC"];
 
@@ -115,6 +115,8 @@ if contains(experiment, "diff_rho")
     channel_snr = 15; %%% TODO: need to make this dynamic
     rho_vals = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
+    pivot_vals = rho_vals;
+
     constraints = ["total"]; % "total", "indiv.", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
@@ -123,6 +125,8 @@ if contains(experiment, "diff_rho")
 elseif contains(experiment, "bottom_clipping_nonclipped")
     channel_snr = linspace(0,18,5);
     rho_vals = 0.5;
+
+    pivot_vals = rho_vals;
     
     constraints = ["indiv."]; % "indiv.", "total", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
@@ -132,20 +136,35 @@ elseif contains(experiment, "bottom_clipping_nonclipped")
 elseif contains(experiment, "bottom_clipping_clipped")
     channel_snr = linspace(0,18,5);
     rho_vals = 0.1;
+
+    pivot_vals = rho_vals;
     
     constraints = ["indiv."]; % "indiv.", "total", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
     approaches = ["prop. scaling", "asymp. approx.", "opt."]; % "asymp. approx.", "opt."
 
+elseif contains(experiment, "diff_weights")
+    channel_snr = linspace(0,18,5);
+    rho_vals = 0.5;
+
+    pivot_vals = rho_vals;
+
+    constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
+    transforms = ["linear", "affine"]; % "linear", "affine"
+    coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
+    approaches = ["opt."]; % "asymp. approx.", "opt."
+
 else
     channel_snr = linspace(0,18,5);
     rho_vals = 0.5;
+
+    pivot_vals = rho_vals;
     
     constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-    approaches = ["prop. scaling", "asymp. approx.", "opt."]; % "prop. scaling", "asymp. approx.", "opt."
+    approaches = ["prop. scaling", "opt."]; % "prop. scaling", "asymp. approx.", "opt."
 end
 
 iter_arr = [];
@@ -223,19 +242,20 @@ end
 disp("Starting runtime...")
 loopTic = tic;
 
-for rho_idx = 1:length(rho_vals)
-    rho = rho_vals(rho_idx);
-    % Iterate through agent snr values.
-    for agent_db_idx = 1:length(agent_db_values)
-        agent_db = agent_db_values(agent_db_idx);
+
+% Iterate through agent snr values.
+for agent_db_idx = 1:length(agent_db_values)
+    agent_db = agent_db_values(agent_db_idx);
+
+    % Set sensor noise power. Note the factor of 1/dt, which is equivalent to
+    % applying an anti-aliasing filter.
+    w_psd_constant = 1;
+    gamma_w = (dt/w_psd_constant) * (Ps / db2magTen(agent_db));
+    scaled_w = sqrt(gamma_w * w_psd_constant /dt) * all_w; % --> variance of this should be gamma_w/dt
+    scaled_w_psd_constant = gamma_w * w_psd_constant; %% = Nw/2
     
-        % Set sensor noise power. Note the factor of 1/dt, which is equivalent to
-        % applying an anti-aliasing filter.
-        w_psd_constant = 1;
-        gamma_w = (dt/w_psd_constant) * (Ps / db2magTen(agent_db));
-        scaled_w = sqrt(gamma_w * w_psd_constant /dt) * all_w; % --> variance of this should be gamma_w/dt
-        scaled_w_psd_constant = gamma_w * w_psd_constant; %% = Nw/2
-    
+    for rho_idx = 1:length(rho_vals)
+        rho = rho_vals(rho_idx);
         % Iterate through sensor values.
         for sensor_idx = 1:length(sensor_vals)
             S = sensor_vals(sensor_idx);
@@ -281,6 +301,15 @@ for rho_idx = 1:length(rho_vals)
 
                 Ai_linear = sqrt(Pi_max ./ Ci_linear);
                 Ai_affine = sqrt(Pi_max ./ Ci_affine);
+
+                % Define search space for t0
+                t0_search_space = repmat(reshape(t,1,1,[]), 1,1,1,nDeployments);
+                [~, ui_t0_search] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), 1, 1, K, dt, Tp);
+                % Precompute FFT for matched filter template
+                mfTemplate = mi .* util_functions.sensor_signal(t, Tp, norm_fact);
+                % FFT size = 2*K - 1
+                N = 2*K - 1;
+                mfTemplateFFT = fft(mfTemplate, N, 1);
 
                 % Iterate through channel snr values.
                 for channel_db_idx = 1:size(channel_db_values,2)
@@ -342,6 +371,9 @@ for rho_idx = 1:length(rho_vals)
                         %%%%%%%%%%%%%%%%% Optimize pulse shaping coefficients %%%%%%%%%%%%%%%%%
                         for strat_idx = 1:num_strats
                             strat = all_strats(strat_idx);
+                            split_str = split(strat);
+                            constraint = split_str(1);
+
                             % fprintf("Optimizing coeffs. for " + strat + ":");
                             disp("Optimizing coeffs. for " + strat)
                             total_opt_start = tic;
@@ -441,25 +473,47 @@ for rho_idx = 1:length(rho_vals)
                                 elseif contains(strat, "opt.")
                                     % Define parameters for fminsearch
                                     options = optimoptions('fmincon','Display','off','Algorithm','sqp');
-                                    opt_coeffs_cell = cell(1, nDeployments);
+                                    opt_coeffs_cell = cell(1, nDeployments);                                    
+
+                                    if contains(strat, "hetero. linear")
+                                        naive_strat = constraint + " homog. linear prop. scaling";
+                                    elseif contains(strat, "hetero. affine")
+                                        naive_strat = constraint + " homog. affine prop. scaling";
+                                    else
+                                        error("Unknown optimal coefficients requested!")
+                                    end
+
+                                    naive_strat_idx = find(all_strats == naive_strat);
+                                    naive_coeffs = opt_coeffs(naive_strat_idx,:,:,:);
         
                                     % run fmincon using parallelization
                                     parfor dep_idx = 1:nDeployments
+                                        x0 = naive_coeffs(:,:,:,dep_idx);
+
                                         % x0 only depends on ai, bi values are just placeholders here
                                         % use asymp. approx. as starting point (where applicable)
-                                        if contains(strat, "homog. linear")
-                                            % x0 = [opt_ai(:,:,:,dep_idx) 0];
-                                            x0 = [1 0];
-                                        elseif contains(strat, "homog. affine")
-                                            % x0 = [opt_ai(:,:,:,dep_idx) 1];
-                                            x0 = [1 1];
-                                        elseif contains(strat, "hetero. linear")
-                                            % x0 = [opt_ai(:,:,:,dep_idx) zeros(1,S)];
-                                            x0 = [ones(1,S) zeros(1,S)];
-                                        elseif contains(strat, "hetero. affine")
-                                            % x0 = [opt_ai(:,:,:,dep_idx) ones(1,S)];
-                                            x0 = [ones(1,2*S)];
-                                        end
+                                        
+                                        % if contains(strat, "hetero. linear")
+                                        %     x0 = [opt_ai(:,:,:,dep_idx) zeros(1,S)];
+                                        %     % x0 = [ones(1,S) zeros(1,S)];
+                                        % elseif contains(strat, "hetero. affine")
+                                        %     x0 = [opt_ai(:,:,:,dep_idx) ones(1,S)];
+                                        %     % x0 = [ones(1,2*S)];
+                                        % else
+                                        %     error("Unknown optimal coefficients requested!")
+                                        % end
+
+                                        % if contains(strat, "homog. linear")
+                                        %     x0 = [1 0];
+                                        % elseif contains(strat, "homog. affine")
+                                        %     x0 = [1 1];
+                                        % elseif contains(strat, "hetero. linear")
+                                        %     x0 = [ones(1,S) zeros(1,S)];
+                                        % elseif contains(strat, "hetero. affine")
+                                        %     x0 = [ones(1,2*S)];  
+                                        % else
+                                        %     error("Unknown optimal coefficients requested!")
+                                        % end
         
                                         dep_ci = ci(:,:,:,dep_idx);
                                         dep_mi = mi(:,:,:,dep_idx);
@@ -524,14 +578,6 @@ for rho_idx = 1:length(rho_vals)
 
                         % Compute ui here so we don't have to recompute FFT for each strat
                         [~, ui] = mf_integral_fft(noisy_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
-                        % Define search space for t0
-                        t0_search_space = repmat(reshape(t,1,1,[]), 1,1,1,nDeployments);
-                        [~, ui_t0_search] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), 1, 1, K, dt, Tp);
-                        % Precompute FFT for matched filter template
-                        mfTemplate = mi .* util_functions.sensor_signal(t, Tp, norm_fact);
-                        % FFT size = 2*K - 1
-                        N = 2*K - 1;
-                        mfTemplateFFT = fft(mfTemplate, N, 1);
 
                         for strat_idx = 1:num_strats
                             strat = all_strats(strat_idx);
@@ -847,9 +893,9 @@ indiv_upper_cond = (indiv_peak_power_vals - Pi_max)';
 % indiv_lower_cond = (bi + ai .* Gamma_i - sqrt(Pi_max))';
 
 if contains(strat, "total")
-    c = [total_cond];
+    c = total_cond;
 elseif contains(strat, "indiv.")
-    c = [indiv_upper_cond]; % , indiv_lower_cond];
+    c = indiv_upper_cond; % , indiv_lower_cond];
 elseif contains(strat, "mixed")
     c = [total_cond; indiv_upper_cond];
 else
