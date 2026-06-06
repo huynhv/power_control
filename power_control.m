@@ -3,7 +3,9 @@ clear all
 close all
 
 % Choose which experiment to run.
-experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_diff_rho", "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped", "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"];
+experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_diff_rho", "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped", ...
+                    "cwe_disjoint_peak_power_opt_bottom_clipping_clipped", "cwe_disjoint_peak_power_opt_diff_weights", ...
+                    "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha", "cwe_disjoint_peak_power_opt_diff_obj_functions"];
 experiment = "cwe_disjoint_peak_power_opt_diff_weights";
 
 msg = ['Running ' char(experiment)];
@@ -147,13 +149,14 @@ elseif contains(experiment, "bottom_clipping_clipped")
 elseif contains(experiment, "diff_weights")
     channel_snr = linspace(0,18,5);
     rho_vals = 0.5;
+    weight_vals = [1, 1e1, 1e2, 1e3, 1e4];
 
-    pivot_vals = rho_vals;
+    pivot_vals = weight_vals;
 
     constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-    approaches = ["opt."]; % "asymp. approx.", "opt."
+    approaches = ["prop. scaling", "opt."]; % "asymp. approx.", "opt."
 
 else
     channel_snr = linspace(0,18,5);
@@ -254,8 +257,15 @@ for agent_db_idx = 1:length(agent_db_values)
     scaled_w = sqrt(gamma_w * w_psd_constant /dt) * all_w; % --> variance of this should be gamma_w/dt
     scaled_w_psd_constant = gamma_w * w_psd_constant; %% = Nw/2
     
-    for rho_idx = 1:length(rho_vals)
-        rho = rho_vals(rho_idx);
+    for pivot_idx = 1:length(pivot_vals)
+        if contains(experiment, "diff_weights")
+            rho = rho_vals(1);
+            t0_weight = weight_vals(pivot_idx);
+        else
+            rho = rho_vals(pivot_idx);
+            t0_weight = 1;
+        end
+        % rho = rho_vals(pivot_idx);
         % Iterate through sensor values.
         for sensor_idx = 1:length(sensor_vals)
             S = sensor_vals(sensor_idx);
@@ -538,11 +548,9 @@ for agent_db_idx = 1:length(agent_db_values)
                                         
                                         % compute optimal ai and bi using weighted sum objective function
                                         for jj = 1:length(alpha_weight_vals)
-                                            alpha_weight = alpha_weight_vals(jj);
-                                            t0_weight = 1 - alpha_weight;
-        
+
                                             if scheme == "EPC"
-                                                weighted_sum_objective = @(x) alpha_weight .* alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) + t0_weight .* t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1);
+                                                weighted_sum_objective = @(x) alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) + t0_weight .* t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1);
                                             end
                                             [optimal_x, ~] = fmincon(weighted_sum_objective, x0, [], [], [], [], lb, ub, nonlcon, options);
         
@@ -681,16 +689,16 @@ for agent_db_idx = 1:length(agent_db_values)
                             end
     
                             % Compute empirical variance.
-                            rho_empirical_var(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = var(alpha_estimates,0,3);
-                            rho_empirical_var(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = var(t0_estimates_for_plot,0,3);
+                            rho_empirical_var(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,pivot_idx,save_dim,:) = var(alpha_estimates,0,3);
+                            rho_empirical_var(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,pivot_idx,save_dim,:) = var(t0_estimates_for_plot,0,3);
     
                             % Compute empirical mse.
-                            rho_empirical_mse(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = mean((alpha_estimates - alpha_true).^2,3);
-                            rho_empirical_mse(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = mean((t0_estimates_for_plot - t0_true).^2,3);
+                            rho_empirical_mse(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,pivot_idx,save_dim,:) = mean((alpha_estimates - alpha_true).^2,3);
+                            rho_empirical_mse(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,pivot_idx,save_dim,:) = mean((t0_estimates_for_plot - t0_true).^2,3);
     
                             % Compute empirical bias.
-                            rho_empirical_bias(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = mean(alpha_estimates,3);
-                            rho_empirical_bias(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = mean(t0_estimates_for_plot,3);
+                            rho_empirical_bias(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,pivot_idx,save_dim,:) = mean(alpha_estimates,3);
+                            rho_empirical_bias(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,pivot_idx,save_dim,:) = mean(t0_estimates_for_plot,3);
     
                             if scheme == "EPC"
                                 % if contains(strat, "clip")
@@ -710,8 +718,8 @@ for agent_db_idx = 1:length(agent_db_values)
                                 %     rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = t0_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci, alpha_true);
                                 % end
                                 
-                                rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,rho_idx,save_dim,:) = alpha_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci);
-                                rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,rho_idx,save_dim,:) = t0_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci, alpha_true);
+                                rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,pivot_idx,save_dim,:) = alpha_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci);
+                                rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,pivot_idx,save_dim,:) = t0_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci, alpha_true);
                             end
                         end
                         total_est_time = toc(total_est_start);
@@ -766,7 +774,7 @@ else
         "agent_db_values", "channel_snr", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
         "experiment", "sensor_dimension", "save_images", "K", "nDeployments",...
         "constraints", "transforms", "coeff_types", "approaches", "iter_arr", "iter_length", "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals", "save_images",...
-        "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr", "rho_vals", "Mi", "Gamma_i", "Pi_max"];
+        "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr", "rho_vals", "Mi", "Gamma_i", "Pi_max", "pivot_vals"];
     save(experiment + "_results.mat", files_to_save{:})
 end
 
