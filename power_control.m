@@ -2,11 +2,19 @@
 clear all
 close all
 
+% check if parpool instance is already running
+pool = gcp('nocreate');
+% if not, then start one
+if isempty(pool)
+    parpool('local');
+end
+
 % Choose which experiment to run.
 experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_diff_rho", "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped", ...
                     "cwe_disjoint_peak_power_opt_bottom_clipping_clipped", "cwe_disjoint_peak_power_opt_diff_weights", ...
-                    "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha", "cwe_disjoint_peak_power_opt_diff_obj_functions"];
-experiment = "cwe_disjoint_peak_power_opt_diff_weights";
+                    "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha", "cwe_disjoint_peak_power_opt_diff_obj_functions", ...
+                    "cwe_disjoint_peak_power_opt_asympotic_approximation"];
+experiment = "cwe_disjoint_peak_power_opt_asympotic_approximation";
 
 msg = ['Running ' char(experiment)];
 msg_len = strlength(msg);
@@ -29,7 +37,6 @@ nTrials = 500;
 
 % Set number of sensors
 sensor_vals = 5; % [5,10]
-agent_db_values = 0;
 dropout_vals = 0;
 sensor_dimension = length(sensor_vals);
 
@@ -110,8 +117,7 @@ norm_fact = 1;
 Gamma = 1;
 
 % Configure strategies
-all_strats = [];
-
+agent_db_values = 0;
 if contains(experiment, "diff_rho")
     % Define channel snr values.
     channel_snr = 15; %%% TODO: need to make this dynamic
@@ -157,6 +163,33 @@ elseif contains(experiment, "diff_weights")
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
     approaches = ["prop. scaling", "opt."]; % "asymp. approx.", "opt."
+
+elseif contains(experiment, "diff_bounds_on_alpha")
+    channel_snr = linspace(0,18,5);
+    rho_vals = 0.5;
+    weight_vals = 1;
+    Xi_vals = [1, 2, 5, 10];
+
+    pivot_vals = Xi_vals;
+
+    constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
+    transforms = ["linear", "affine"]; % "linear", "affine"
+    coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
+    approaches = ["prop. scaling", "opt."]; % "asymp. approx.", "opt."
+
+elseif contains(experiment, "asymptotic_approximation")
+    channel_snr = 0;
+    rho_vals = 0.5;
+    weight_vals = 1;
+    Xi_vals = 1;
+    agent_db_values = linspace(0,15,5);
+
+    pivot_vals = rho_vals;
+
+    constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
+    transforms = ["linear", "affine"]; % "linear", "affine"
+    coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
+    approaches = ["asymp. approx", "opt."]; % "asymp. approx.", "opt."
 
 else
     channel_snr = linspace(0,18,5);
@@ -261,9 +294,15 @@ for agent_db_idx = 1:length(agent_db_values)
         if contains(experiment, "diff_weights")
             rho = rho_vals(1);
             t0_weight = weight_vals(pivot_idx);
+            Xi = 1;
+        elseif contains(experiment, "diff_bounds_on_alpha")
+            rho = rho_vals(1);
+            t0_weight = 1;
+            Xi = Xi_vals(pivot_idx);
         else
             rho = rho_vals(pivot_idx);
             t0_weight = 1;
+            Xi = 1;
         end
         % rho = rho_vals(pivot_idx);
         % Iterate through sensor values.
@@ -294,20 +333,22 @@ for agent_db_idx = 1:length(agent_db_values)
                 E0 = sum(util_functions.sensor_signal(t-t0_true, Tp, norm_fact).^2 .* dt, 1);
                 % Ei = mi.^2 .* E0;
 
-                Mi = alpha_true .* mi.^2 .* E0;
                 Gamma_i = gamma_w .* mi.^2 .* E0;
     
                 noisy_unified_xi = alpha_true .* (mi .* util_functions.sensor_signal(t-t0_true, Tp, norm_fact)) + scaled_w(:,1:S,:,:);
 
                 disp("Computing peak-power values...")
                 
-                Gi = Mi + Gamma_i;
-                Ci_linear = (Mi + Gamma_i).^2;
-                Ci_affine = (Mi./2 + Gamma_i).^2;
+                Mi_true = alpha_true .* mi.^2 .* E0;
+                Gi = Mi_true + Gamma_i;
 
                 P0_max = mean((Gi).^2, "all");
                 Pi_max = rho * P0_max; % rho * (Mi + Gamma_i).^2;
                 P_max = D_val * sum(Pi_max,2);
+
+                Mi = Xi * alpha_true .* mi.^2 .* E0;
+                Ci_linear = (Mi + Gamma_i).^2;
+                Ci_affine = (Mi./2 + Gamma_i).^2;
 
                 Ai_linear = sqrt(Pi_max ./ Ci_linear);
                 Ai_affine = sqrt(Pi_max ./ Ci_affine);
