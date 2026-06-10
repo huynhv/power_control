@@ -187,7 +187,7 @@ elseif contains(experiment, "asymp_approx")
     pivot_vals = rho_vals;
 
     constraints = ["mixed"]; % "indiv.", "total", "mixed"
-    transforms = ["linear"]; % "linear", "affine"
+    transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
     approaches = ["asymp. approx.", "prop. scaling", "opt."]; % "asymp. approx.", "opt."
 
@@ -492,10 +492,10 @@ for agent_db_idx = 1:length(agent_db_values)
         
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
                                         opt_bi = opt_ai .* Mi ./ 2;
-                                    elseif contains(strat, "mixed hetero. linear asymp. approx.")
+                                    elseif contains(strat, "mixed") && contains(strat, "hetero.") && contains(strat,"asymp. approx.")
                                         % initialize ai matrix
                                         opt_ai = zeros(1,S,1,nDeployments);
-                                        opt_bi = 0;
+                                        opt_bi = zeros(1,S,1,nDeployments);
 
                                         % Run active-set approach for each deployment
                                         active_set = ones(S,nDeployments);
@@ -503,7 +503,15 @@ for agent_db_idx = 1:length(agent_db_values)
                                         for dep = 1:nDeployments
                                             dep_ci = ci(:,:,:,dep);
                                             dep_mi = mi(:,:,:,dep);
-                                            dep_Ci = Ci_linear(:,:,:,dep);
+                                            dep_Mi = Mi(:,:,:,dep);
+                                            % Select deployment Ci
+                                            if contains(strat, "linear")
+                                                dep_Ci = Ci_linear(:,:,:,dep);
+                                            elseif contains(strat, "affine")
+                                                dep_Ci = Ci_affine(:,:,:,dep);
+                                            else
+                                                error("Unknown strategy specified!")
+                                            end
 
                                             prev_dep_active_set = [];
                                             while true
@@ -544,16 +552,19 @@ for agent_db_idx = 1:length(agent_db_values)
                                                 else
                                                     opt_ai(1,ii,1,dep) = sqrt(Pi_max / dep_Ci(ii));
                                                 end
-                                                continue
+                                                
+                                                if contains(strat, "affine")
+                                                    opt_bi(1,ii,1,dep) = opt_ai(1,ii,1,dep) .* dep_Mi(ii) / 2;
+                                                end
                                             end
                                         end
-                                    elseif contains(strat, "mixed hetero. affine asymp. approx.")
-                                        [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
-                                        sum_cond_affine = sqrt(P_max ./ sum(Ci_affine ./ ci.^2, 2));
-                                        mixed_cond_affine = [Gamma_affine sum_cond_affine];
-        
-                                        opt_ai = min(mixed_cond_affine, [], 2) ./ ci;
-                                        opt_bi = opt_ai .* Mi ./ 2;
+                                    % elseif contains(strat, "mixed hetero. affine asymp. approx.")
+                                    %     [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
+                                    %     sum_cond_affine = sqrt(P_max ./ sum(Ci_affine ./ ci.^2, 2));
+                                    %     mixed_cond_affine = [Gamma_affine sum_cond_affine];
+                                    % 
+                                    %     opt_ai = min(mixed_cond_affine, [], 2) ./ ci;
+                                    %     opt_bi = opt_ai .* Mi ./ 2;
                                     end
                                     %%% end mixed energy constraint
                                 end
