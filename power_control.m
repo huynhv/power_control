@@ -13,8 +13,8 @@ end
 experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_diff_rho", "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped", ...
                     "cwe_disjoint_peak_power_opt_bottom_clipping_clipped", "cwe_disjoint_peak_power_opt_diff_weights", ...
                     "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha", "cwe_disjoint_peak_power_opt_diff_obj_functions", ...
-                    "cwe_disjoint_peak_power_opt_asympotic_approximation"];
-experiment = "cwe_disjoint_peak_power_opt_asympotic_approximation";
+                    "cwe_disjoint_peak_power_opt_asymp_approx"];
+experiment = "cwe_disjoint_peak_power_opt_asymp_approx";
 
 msg = ['Running ' char(experiment)];
 msg_len = strlength(msg);
@@ -177,19 +177,19 @@ elseif contains(experiment, "diff_bounds_on_alpha")
     coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
     approaches = ["prop. scaling", "opt."]; % "asymp. approx.", "opt."
 
-elseif contains(experiment, "asymptotic_approximation")
+elseif contains(experiment, "asymp_approx")
     channel_snr = 0;
     rho_vals = 0.5;
     weight_vals = 1;
     Xi_vals = 1;
-    agent_db_values = linspace(0,15,5);
+    agent_db_values = linspace(0,20,5);
 
     pivot_vals = rho_vals;
 
-    constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
-    transforms = ["linear", "affine"]; % "linear", "affine"
+    constraints = ["mixed"]; % "indiv.", "total", "mixed"
+    transforms = ["linear"]; % "linear", "affine"
     coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-    approaches = ["asymp. approx", "opt."]; % "asymp. approx.", "opt."
+    approaches = ["asymp. approx.", "prop. scaling", "opt."]; % "asymp. approx.", "opt."
 
 else
     channel_snr = linspace(0,18,5);
@@ -210,11 +210,6 @@ for i = 1:numel(constraints)
     for j = 1:numel(approaches)
         for k = 1:numel(coeff_types)
             for l = 1:numel(transforms)
-                % if constraints(i) == "indiv."
-                %     if coeff_types(k) == "homog." && approaches(j) == "asymp. approx."
-                %         continue
-                %     end
-                % end
 
                 if constraints(i) ~= "indiv."
                     if coeff_types(k) == "hetero." && approaches(j) == "prop. scaling"
@@ -223,7 +218,7 @@ for i = 1:numel(constraints)
                 end
 
                 if coeff_types(k) == "homog." && approaches(j) == "asymp. approx."
-                        continue
+                    continue
                 end
 
                 % do not include homog. asymp. approx in strats
@@ -232,9 +227,7 @@ for i = 1:numel(constraints)
 
                 elseif contains(experiment, "diff_rho") && coeff_types(k) == 'hetero.' && approaches(j) == 'asymp. approx'
                     continue
-
                 else
-                % if true
                     if i == 1
                         iter_arr = [iter_arr; coeff_types(k) + " " + transforms(l) + " " + approaches(j)];
                     end
@@ -344,7 +337,7 @@ for agent_db_idx = 1:length(agent_db_values)
 
                 P0_max = mean((Gi).^2, "all");
                 Pi_max = rho * P0_max; % rho * (Mi + Gamma_i).^2;
-                P_max = D_val * sum(Pi_max,2);
+                P_max = D_val * S*Pi_max;
 
                 Mi = Xi * alpha_true .* mi.^2 .* E0;
                 Ci_linear = (Mi + Gamma_i).^2;
@@ -452,11 +445,11 @@ for agent_db_idx = 1:length(agent_db_values)
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     elseif contains(strat, "total hetero. linear asymp. approx.")
-                                        opt_ai = (1./ci) .* sqrt(P_max ./ sum(Ci_linear ./ ci.^2, 2));
+                                        opt_ai = sqrt(P_max ./ sum( (ci.^2 .* mi.^4) ./ Ci_linear, 2)) .* (ci .* mi.^2) ./ Ci_linear;
                                         opt_bi = 0;
         
                                     elseif contains(strat, "total hetero. affine asymp. approx.")
-                                        opt_ai = (1./ci) .* sqrt(P_max ./ sum(Ci_affine ./ ci.^2, 2));
+                                        opt_ai = sqrt(P_max ./ sum( (ci.^2 .* mi.^4) ./ Ci_affine, 2)) .* (ci .* mi.^2) ./ Ci_affine;
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     %%% INDIVIDUAL ENERGY CONSTRAINT
@@ -477,13 +470,13 @@ for agent_db_idx = 1:length(agent_db_values)
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     elseif contains(strat, "indiv. hetero. linear asymp. approx.")
-                                        [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
-                                        opt_ai = Gamma_linear ./ ci;
+                                        % [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
+                                        opt_ai = Ai_linear;
                                         opt_bi = 0;
         
                                     elseif contains(strat, "indiv. hetero. affine asymp. approx.")
-                                        [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
-                                        opt_ai = Gamma_affine ./ ci;
+                                        % [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
+                                        opt_ai = Ai_affine;
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     %%% MIXED ENERGY CONSTRAINT
@@ -500,12 +493,60 @@ for agent_db_idx = 1:length(agent_db_values)
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
                                         opt_bi = opt_ai .* Mi ./ 2;
                                     elseif contains(strat, "mixed hetero. linear asymp. approx.")
-                                        [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
-                                        sum_cond_linear = sqrt(P_max ./ sum(Ci_linear ./ ci.^2, 2));
-                                        mixed_cond_linear = [Gamma_linear sum_cond_linear];
-        
-                                        opt_ai = min(mixed_cond_linear, [], 2) ./ ci;
+                                        % initialize ai matrix
+                                        opt_ai = zeros(1,S,1,nDeployments);
                                         opt_bi = 0;
+
+                                        % Run active-set approach for each deployment
+                                        active_set = ones(S,nDeployments);
+                                        saturated_set = zeros(S,nDeployments);
+                                        for dep = 1:nDeployments
+                                            dep_ci = ci(:,:,:,dep);
+                                            dep_mi = mi(:,:,:,dep);
+                                            dep_Ci = Ci_linear(:,:,:,dep);
+
+                                            prev_dep_active_set = [];
+                                            while true
+                                                dep_active_set_idxs = find(active_set(:,dep));
+                                                dep_sat_set_idxs = find(saturated_set(:,dep));
+    
+                                                active_ci = dep_ci(dep_active_set_idxs);
+                                                active_mi = dep_mi(dep_active_set_idxs);
+                                                active_Ci = dep_Ci(dep_active_set_idxs);
+
+                                                nu_num = sum((active_ci .* active_mi.^2).^2 ./ active_Ci, 2);
+                                                nu_denom = P_max - Pi_max*numel(dep_sat_set_idxs); % Pi_max is a scalar here
+                                                nu = 0.5 * sqrt(nu_num ./ nu_denom); % nu should be a scalar
+                                                
+                                                active_cond = ge((active_ci .* active_mi.^2) ./ (2*nu.*active_Ci), sqrt(Pi_max ./ active_Ci));
+
+                                                % Update active and saturated sets
+                                                for s_idx = 1:numel(active_cond)
+                                                    if active_cond(s_idx)
+                                                        i = dep_active_set_idxs(s_idx);
+                                                        active_set(i,dep) = 0;
+                                                        saturated_set(i,dep) = 1;
+                                                    end
+                                                end
+
+                                                % store active set for comparison
+                                                if isequal(active_set(:,dep), prev_dep_active_set)
+                                                    disp(active_set(:,dep).')
+                                                    break
+                                                else
+                                                    prev_dep_active_set = active_set(:,dep);
+                                                end
+                                            end
+
+                                            for ii = 1:S
+                                                if active_set(ii,dep)
+                                                    opt_ai(1,ii,1,dep) = (dep_ci(ii) * dep_mi(ii)^2) / (2*nu * dep_Ci(ii));
+                                                else
+                                                    opt_ai(1,ii,1,dep) = sqrt(Pi_max / dep_Ci(ii));
+                                                end
+                                                continue
+                                            end
+                                        end
                                     elseif contains(strat, "mixed hetero. affine asymp. approx.")
                                         [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
                                         sum_cond_affine = sqrt(P_max ./ sum(Ci_affine ./ ci.^2, 2));
