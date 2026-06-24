@@ -14,7 +14,7 @@ experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_d
                     "cwe_disjoint_peak_power_opt_bottom_clipping_clipped", "cwe_disjoint_peak_power_opt_diff_weights", ...
                     "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha", "cwe_disjoint_peak_power_opt_diff_obj_functions", ...
                     "cwe_disjoint_peak_power_opt_asymp_approx"];
-experiment = "cwe_disjoint_peak_power_opt_asymp_approx";
+experiment = "cwe_disjoint_peak_power_opt_diff_obj_functions";
 
 msg = ['Running ' char(experiment)];
 msg_len = strlength(msg);
@@ -25,7 +25,6 @@ fprintf('╰%s╯\n\n', border);
 
 % Set seed for reproducibility
 seed = 264;
-% seed = randi(1e4);
 disp(seed);
 rng(seed);
 
@@ -186,10 +185,25 @@ elseif contains(experiment, "asymp_approx")
 
     pivot_vals = rho_vals;
 
-    constraints = ["mixed"]; % "indiv.", "total", "mixed"
+    constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
     transforms = ["linear", "affine"]; % "linear", "affine"
     coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
     approaches = ["asymp. approx.", "prop. scaling", "opt."]; % "asymp. approx.", "opt."
+
+elseif contains(experiment, "diff_obj_functions")
+    channel_snr = linspace(0,18,5);
+    rho_vals = 0.5;
+    weight_vals = 1;
+    Xi_vals = 1;
+
+    obj_function_vals = ["crlb sum", "fim trace", "fim det"];
+
+    pivot_vals = obj_function_vals;
+
+    constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
+    transforms = ["linear", "affine"]; % "linear", "affine"
+    coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
+    approaches = ["opt."]; % "prop. scaling", "asymp. approx.", "opt."
 
 else
     channel_snr = linspace(0,18,5);
@@ -288,14 +302,22 @@ for agent_db_idx = 1:length(agent_db_values)
             rho = rho_vals(1);
             t0_weight = weight_vals(pivot_idx);
             Xi = 1;
+            obj_func = "crlb sum";
         elseif contains(experiment, "diff_bounds_on_alpha")
             rho = rho_vals(1);
             t0_weight = 1;
             Xi = Xi_vals(pivot_idx);
+            obj_func = "crlb sum";
+        elseif contains(experiment, "diff_obj_functions")
+            rho = rho_vals(1);
+            t0_weight = 1;
+            Xi = 1;
+            obj_func = obj_function_vals(pivot_idx);
         else
             rho = rho_vals(pivot_idx);
             t0_weight = 1;
             Xi = 1;
+            obj_func = "crlb sum";
         end
         % rho = rho_vals(pivot_idx);
         % Iterate through sensor values.
@@ -339,7 +361,8 @@ for agent_db_idx = 1:length(agent_db_values)
                 Pi_max = rho * P0_max; % rho * (Mi + Gamma_i).^2;
                 P_max = D_val * S*Pi_max;
 
-                Mi = Xi * alpha_true .* mi.^2 .* E0;
+                alpha_max = Xi * alpha_true;
+                Mi = alpha_max .* mi.^2 .* E0;
                 Ci_linear = (Mi + Gamma_i).^2;
                 Ci_affine = (Mi./2 + Gamma_i).^2;
 
@@ -419,7 +442,7 @@ for agent_db_idx = 1:length(agent_db_values)
                             constraint = split_str(1);
 
                             % fprintf("Optimizing coeffs. for " + strat + ":");
-                            disp("Optimizing coeffs. for " + strat)
+                            disp("Optimizing coeffs. for " + strat + " | obj = " + obj_func)
                             total_opt_start = tic;
     
                             % baseline estimation without optimal coefficients
@@ -436,34 +459,34 @@ for agent_db_idx = 1:length(agent_db_values)
                                         % opt_bi = (sum(Gi,2) + sqrt(sum(Gi,2).^2 - S*(sum(Gi.^2,2)-P_max))) ./ S; 
 
                                     %%% TOTAL ENERGY CONSTRAINT
-                                    elseif contains(strat, "total homog. linear prop. scaling")
+                                    elseif contains(strat, "total homog. linear prop. scaling") || contains(strat, "total hetero. linear opt.")
                                         opt_ai = sqrt(P_max ./ sum(Ci_linear,2));
-                                        opt_bi = 0;
+                                        opt_bi = zeros(size(opt_ai));
         
-                                    elseif contains(strat, "total homog. affine prop. scaling")
+                                    elseif contains(strat, "total homog. affine prop. scaling") || contains(strat, "total hetero. affine opt.")
                                         opt_ai = sqrt(P_max ./ sum(Ci_affine, 2));
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     elseif contains(strat, "total hetero. linear asymp. approx.")
                                         opt_ai = sqrt(P_max ./ sum( (ci.^2 .* mi.^4) ./ Ci_linear, 2)) .* (ci .* mi.^2) ./ Ci_linear;
-                                        opt_bi = 0;
+                                        opt_bi = zeros(size(opt_ai));
         
                                     elseif contains(strat, "total hetero. affine asymp. approx.")
                                         opt_ai = sqrt(P_max ./ sum( (ci.^2 .* mi.^4) ./ Ci_affine, 2)) .* (ci .* mi.^2) ./ Ci_affine;
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     %%% INDIVIDUAL ENERGY CONSTRAINT
-                                    elseif contains(strat, "indiv. homog. linear prop. scaling")
+                                    elseif contains(strat, "indiv. homog. linear prop. scaling") || contains(strat, "indiv. hetero. linear opt.")
                                         opt_ai = min(Ai_linear, [], 2);
-                                        opt_bi = 0;
+                                        opt_bi = zeros(size(opt_ai));
         
-                                    elseif contains(strat, "indiv. homog. affine prop. scaling")
+                                    elseif contains(strat, "indiv. homog. affine prop. scaling") || contains(strat, "indiv. hetero. affine opt.")
                                         opt_ai = min(Ai_affine, [], 2);
                                         opt_bi = opt_ai .* Mi ./ 2;
 
                                     elseif contains(strat, "indiv. hetero. linear prop. scaling")
                                         opt_ai = Ai_linear;
-                                        opt_bi = 0;
+                                        opt_bi = zeros(size(opt_ai));
 
                                     elseif contains(strat, "indiv. hetero. affine prop. scaling")
                                         opt_ai = Ai_affine;
@@ -472,7 +495,7 @@ for agent_db_idx = 1:length(agent_db_values)
                                     elseif contains(strat, "indiv. hetero. linear asymp. approx.")
                                         % [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
                                         opt_ai = Ai_linear;
-                                        opt_bi = 0;
+                                        opt_bi = zeros(size(opt_ai));
         
                                     elseif contains(strat, "indiv. hetero. affine asymp. approx.")
                                         % [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
@@ -480,18 +503,20 @@ for agent_db_idx = 1:length(agent_db_values)
                                         opt_bi = opt_ai .* Mi ./ 2;
         
                                     %%% MIXED ENERGY CONSTRAINT
-                                    elseif contains(strat, "mixed homog. linear prop. scaling")
+                                    elseif contains(strat, "mixed homog. linear prop. scaling") || contains(strat, "mixed hetero. linear opt.")
                                         indiv_cond = min(Ai_linear, [], 2);
                                         sum_cond = sqrt(P_max ./ sum(Ci_linear,2));
         
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
-                                        opt_bi = 0;
-                                    elseif contains(strat, "mixed homog. affine prop. scaling")
+                                        opt_bi = zeros(size(opt_ai));
+
+                                    elseif contains(strat, "mixed homog. affine prop. scaling") || contains(strat, "mixed hetero. affine opt.")
                                         indiv_cond = min(Ai_affine, [], 2);
                                         sum_cond = sqrt(P_max ./ sum(Ci_affine, 2));
         
                                         opt_ai = min([indiv_cond sum_cond], [], 2);
                                         opt_bi = opt_ai .* Mi ./ 2;
+
                                     elseif contains(strat, "mixed") && contains(strat, "hetero.") && contains(strat,"asymp. approx.")
                                         % initialize ai matrix
                                         opt_ai = zeros(1,S,1,nDeployments);
@@ -558,13 +583,6 @@ for agent_db_idx = 1:length(agent_db_values)
                                                 end
                                             end
                                         end
-                                    % elseif contains(strat, "mixed hetero. affine asymp. approx.")
-                                    %     [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
-                                    %     sum_cond_affine = sqrt(P_max ./ sum(Ci_affine ./ ci.^2, 2));
-                                    %     mixed_cond_affine = [Gamma_affine sum_cond_affine];
-                                    % 
-                                    %     opt_ai = min(mixed_cond_affine, [], 2) ./ ci;
-                                    %     opt_bi = opt_ai .* Mi ./ 2;
                                     end
                                     %%% end mixed energy constraint
                                 end
@@ -578,20 +596,22 @@ for agent_db_idx = 1:length(agent_db_values)
                                     options = optimoptions('fmincon','Display','off','Algorithm','sqp');
                                     opt_coeffs_cell = cell(1, nDeployments);                                    
 
-                                    if contains(strat, "hetero. linear")
-                                        naive_strat = constraint + " homog. linear prop. scaling";
-                                    elseif contains(strat, "hetero. affine")
-                                        naive_strat = constraint + " homog. affine prop. scaling";
-                                    else
-                                        error("Unknown optimal coefficients requested!")
-                                    end
-
-                                    naive_strat_idx = find(all_strats == naive_strat);
-                                    naive_coeffs = opt_coeffs(naive_strat_idx,:,:,:);
+                                    % if contains(strat, "hetero. linear")
+                                    %     prop_scaling_strat = constraint + " homog. linear prop. scaling";
+                                    % elseif contains(strat, "hetero. affine")
+                                    %     prop_scaling_strat = constraint + " homog. affine prop. scaling";
+                                    % else
+                                    %     error("Unknown optimal coefficients requested!")
+                                    % end
+                                    % 
+                                    % prop_scaling_strat_idx = find(all_strats == prop_scaling_strat);
+                                    % prop_scaling_coeffs = opt_coeffs(prop_scaling_strat_idx,:,:,:);
+                                    opt_starting_coeffs = [opt_ai.*ones(1,S,1,nDeployments) opt_bi.*ones(1,S,1,nDeployments)];
         
                                     % run fmincon using parallelization
                                     parfor dep_idx = 1:nDeployments
-                                        x0 = naive_coeffs(:,:,:,dep_idx);
+                                        % x0 = opt_starting_coeffs(:,:,:,dep_idx);
+                                        x0 = ones(1,2*S);
 
                                         % x0 only depends on ai, bi values are just placeholders here
                                         % use asymp. approx. as starting point (where applicable)
@@ -642,10 +662,18 @@ for agent_db_idx = 1:length(agent_db_values)
                                         % compute optimal ai and bi using weighted sum objective function
                                         for jj = 1:length(alpha_weight_vals)
 
-                                            if scheme == "EPC"
-                                                weighted_sum_objective = @(x) alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) + t0_weight .* t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1);
+                                            if obj_func == "crlb sum"
+                                                % objective is already in form of 1/lambda_alpha, 1/lambda_t0
+                                                fmincon_obj = @(x) alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) + t0_weight .* t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1);
+                                            elseif obj_func == "fim trace"
+                                                fmincon_obj = @(x) -1* (1/alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) + 1/t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1));
+                                            elseif obj_func == "fim det"
+                                                fmincon_obj = @(x) -1/(alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) * t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1));
+                                            else
+                                                error("Unknown objective function specified!")
                                             end
-                                            [optimal_x, ~] = fmincon(weighted_sum_objective, x0, [], [], [], [], lb, ub, nonlcon, options);
+                                            
+                                            [optimal_x, ~] = fmincon(fmincon_obj, x0, [], [], [], [], lb, ub, nonlcon, options);
         
                                             % assign ai
                                             local_coeffs(1:S) = optimal_x(1:length(optimal_x)/2);
