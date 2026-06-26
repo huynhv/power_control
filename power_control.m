@@ -10,11 +10,16 @@ if isempty(pool)
 end
 
 % Choose which experiment to run.
-experiment_list = ["cwe_disjoint_peak_power_opt", "cwe_disjoint_peak_power_opt_diff_rho", "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped", ...
-                    "cwe_disjoint_peak_power_opt_bottom_clipping_clipped", "cwe_disjoint_peak_power_opt_diff_weights", ...
-                    "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha", "cwe_disjoint_peak_power_opt_diff_obj_functions", ...
-                    "cwe_disjoint_peak_power_opt_asymp_approx"];
-experiment = "cwe_disjoint_peak_power_opt_diff_obj_functions";
+experiment_list = ["cwe_disjoint_peak_power_opt"; 
+                   "cwe_disjoint_peak_power_opt_diff_rho"; 
+                   "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped";
+                   "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"; 
+                   "cwe_disjoint_peak_power_opt_diff_weights";
+                   "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha"; 
+                   "cwe_disjoint_peak_power_opt_diff_obj_functions";
+                   "cwe_disjoint_peak_power_opt_asymp_approx"];
+
+experiment = "cwe_disjoint_peak_power_opt";
 
 msg = ['Running ' char(experiment)];
 msg_len = strlength(msg);
@@ -28,9 +33,9 @@ seed = 264;
 disp(seed);
 rng(seed);
 
-nDeployments = 10;
+nDeployments = 5;
 % Set the number of measurements per sensor, starting from 0
-K = 301;
+K = 251;
 % Set number of trials.
 nTrials = 500;
 
@@ -40,7 +45,7 @@ dropout_vals = 0;
 sensor_dimension = length(sensor_vals);
 
 % Set observation window length in seconds.
-T0 = 5;
+T0 = 4;
 
 % Define event signal parameters.
 Tp = 1;
@@ -206,7 +211,7 @@ elseif contains(experiment, "diff_obj_functions")
     approaches = ["opt."]; % "prop. scaling", "asymp. approx.", "opt."
 
 else
-    channel_snr = linspace(0,18,5);
+    channel_snr = 18; % linspace(0,18,5);
     rho_vals = 0.5;
 
     pivot_vals = rho_vals;
@@ -436,14 +441,14 @@ for agent_db_idx = 1:length(agent_db_values)
                         end
     
                         %%%%%%%%%%%%%%%%% Optimize pulse shaping coefficients %%%%%%%%%%%%%%%%%
+                        total_opt_start = tic;
                         for strat_idx = 1:num_strats
                             strat = all_strats(strat_idx);
                             split_str = split(strat);
                             constraint = split_str(1);
 
                             % fprintf("Optimizing coeffs. for " + strat + ":");
-                            disp("Optimizing coeffs. for " + strat + " | obj = " + obj_func)
-                            total_opt_start = tic;
+                            disp("Optimizing " + strat + " | obj = " + obj_func)
     
                             % baseline estimation without optimal coefficients
                             if contains(strat, "none")
@@ -454,7 +459,7 @@ for agent_db_idx = 1:length(agent_db_values)
                                 if scheme == "EPC"
                                     if contains(strat, "indiv. bottom clipping")
                                         opt_ai = 1;
-                                        % solution using quadratic equation, could explore what if using - root instead
+                                        % solution using quadratic equation, could explore what if using negative root instead
                                         opt_bi = Gi - sqrt(Pi_max);
                                         % opt_bi = (sum(Gi,2) + sqrt(sum(Gi,2).^2 - S*(sum(Gi.^2,2)-P_max))) ./ S; 
 
@@ -593,25 +598,15 @@ for agent_db_idx = 1:length(agent_db_values)
                                 % Run fminsearch
                                 elseif contains(strat, "opt.")
                                     % Define parameters for fminsearch
-                                    options = optimoptions('fmincon','Display','off','Algorithm','sqp');
+                                    options = optimoptions('fmincon','Display','off', ...
+                                                           'Algorithm','sqp');
                                     opt_coeffs_cell = cell(1, nDeployments);                                    
-
-                                    % if contains(strat, "hetero. linear")
-                                    %     prop_scaling_strat = constraint + " homog. linear prop. scaling";
-                                    % elseif contains(strat, "hetero. affine")
-                                    %     prop_scaling_strat = constraint + " homog. affine prop. scaling";
-                                    % else
-                                    %     error("Unknown optimal coefficients requested!")
-                                    % end
-                                    % 
-                                    % prop_scaling_strat_idx = find(all_strats == prop_scaling_strat);
-                                    % prop_scaling_coeffs = opt_coeffs(prop_scaling_strat_idx,:,:,:);
                                     opt_starting_coeffs = [opt_ai.*ones(1,S,1,nDeployments) opt_bi.*ones(1,S,1,nDeployments)];
         
                                     % run fmincon using parallelization
                                     parfor dep_idx = 1:nDeployments
                                         % x0 = opt_starting_coeffs(:,:,:,dep_idx);
-                                        x0 = ones(1,2*S);
+                                        x0 = ones(1,S);
 
                                         % x0 only depends on ai, bi values are just placeholders here
                                         % use asymp. approx. as starting point (where applicable)
@@ -655,36 +650,30 @@ for agent_db_idx = 1:length(agent_db_values)
                                         ub = []; % unrestricted
         
                                         local_coeffs = zeros(1,2*S);
-                                        % constraints function expects input for x0 to be [ai bi]
-                                        % nonlcon = @(x) fmincon_constraints(x, C1i(:,:,:,dep_idx), C2i(:,:,:,dep_idx), T0, Ei_max(:,:,:,dep_idx), E_total(:,:,:,dep_idx), strat, D_val);
                                         nonlcon = @(x) fmincon_constraints(x, dep_Mi, dep_Gamma_i, dep_Pi_max, dep_P_max, strat);
                                         
-                                        % compute optimal ai and bi using weighted sum objective function
-                                        for jj = 1:length(alpha_weight_vals)
+                                        if obj_func == "crlb sum"
+                                            % objective is already in form of 1/lambda_alpha, 1/lambda_t0
+                                            fmincon_obj = @(x) alpha_objective_array(x, dep_mi, dep_ci) + t0_weight .* t0_objective_array(x, dep_mi, dep_ci, 1);
+                                        elseif obj_func == "fim trace"
+                                            fmincon_obj = @(x) -1* (1/alpha_objective_array(x, dep_mi, dep_ci) + 1/t0_objective_array(x, dep_mi, dep_ci, 1));
+                                        elseif obj_func == "fim det"
+                                            fmincon_obj = @(x) -1/(alpha_objective_array(x, dep_mi, dep_ci) * t0_objective_array(x, dep_mi, dep_ci, 1));
+                                        else
+                                            error("Unknown objective function specified!")
+                                        end
+                                        
+                                        [optimal_x, ~] = fmincon(fmincon_obj, x0, [], [], [], [], lb, ub, nonlcon, options);
+    
+                                        % assign ai
+                                        local_coeffs(1:S) = optimal_x(1:S);
 
-                                            if obj_func == "crlb sum"
-                                                % objective is already in form of 1/lambda_alpha, 1/lambda_t0
-                                                fmincon_obj = @(x) alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) + t0_weight .* t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1);
-                                            elseif obj_func == "fim trace"
-                                                fmincon_obj = @(x) -1* (1/alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) + 1/t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1));
-                                            elseif obj_func == "fim det"
-                                                fmincon_obj = @(x) -1/(alpha_objective_array(x(1:length(x)/2), dep_mi, dep_ci) * t0_objective_array(x(1:length(x)/2), dep_mi, dep_ci, 1));
-                                            else
-                                                error("Unknown objective function specified!")
-                                            end
-                                            
-                                            [optimal_x, ~] = fmincon(fmincon_obj, x0, [], [], [], [], lb, ub, nonlcon, options);
-        
-                                            % assign ai
-                                            local_coeffs(1:S) = optimal_x(1:length(optimal_x)/2);
-
-                                            % assign bi
-                                            % local_coeffs(S+1:end) = optimal_x((length(optimal_x)/2)+1:end);
-                                            if contains(strat, "linear")
-                                                local_coeffs(S+1:end) = 0;
-                                            elseif contains(strat, "affine")
-                                                local_coeffs(S+1:end) = local_coeffs(1:S) .* dep_Mi ./ 2;
-                                            end
+                                        % assign bi
+                                        % local_coeffs(S+1:end) = optimal_x((length(optimal_x)/2)+1:end);
+                                        if contains(strat, "linear")
+                                            local_coeffs(S+1:end) = 0;
+                                        elseif contains(strat, "affine")
+                                            local_coeffs(S+1:end) = local_coeffs(1:S) .* dep_Mi ./ 2;
                                         end
                                         opt_coeffs_cell{dep_idx} = local_coeffs;
                                     end
@@ -696,11 +685,10 @@ for agent_db_idx = 1:length(agent_db_values)
                                     error("Unknown strategy specified!")
                                 end
                             end
-    
-                            total_opt_time = toc(total_opt_start);
-                            disp("Total " + strat + " time: " + floor(total_opt_time/60) + " minutes " + mod(total_opt_time,60) + " seconds")
-                            fprintf("\n")
                         end
+                        total_opt_time = toc(total_opt_start);
+                        disp("Total optimization time: " + floor(total_opt_time/60) + " minutes " + mod(total_opt_time,60) + " seconds")
+                        fprintf("\n")
     
                         %%%%%%%%%%%%%%%%% ESTIMATION %%%%%%%%%%%%%%%%%
                         total_est_start = tic;
@@ -710,7 +698,7 @@ for agent_db_idx = 1:length(agent_db_values)
 
                         for strat_idx = 1:num_strats
                             strat = all_strats(strat_idx);
-                            disp("Starting ML estimation for " + strat);
+                            disp("Running ML estimation for " + strat);
     
                             ai = opt_coeffs(strat_idx, 1:S, :, :);
                             bi = opt_coeffs(strat_idx, S+1:end, :, :);    
@@ -795,7 +783,7 @@ for agent_db_idx = 1:length(agent_db_values)
                                     % [Omega, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
                                     
                                     Af = fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), N, 1);
-                                    lag0 = Tp/dt;
+                                    lag0 = round(Tp/dt);
                                     Y_tensor =  dt*ifft(Af .* mfTemplateFFT, [], 1);
                                     ui_tensor = Y_tensor(lag0+1 : (lag0+K), :, :, :);
                                     Omega = sum(ui_tensor .* ci .* ai, 2);
@@ -1007,29 +995,28 @@ exclude = all_strats(contains(all_strats, "hetero.") & contains(all_strats, "asy
 
 %% Functions
 function [c, ceq] = fmincon_constraints(x, Mi, Gamma_i, Pi_max, P_max, strat)
-ai = x(1:length(x)/2);
-% bi = x(length(x)/2 + 1:end);
-
-if contains(strat, "linear")
-    indiv_peak_power_vals = (ai .* (Mi + Gamma_i)).^2;
-else
-    % indiv_peak_power_vals = ai .* (Mi + Gamma_i) - bi;
-    indiv_peak_power_vals = (ai .* (Mi./2 + Gamma_i)).^2;
-end
-
-total_cond = sum(indiv_peak_power_vals) - P_max;
-indiv_upper_cond = (indiv_peak_power_vals - Pi_max)';
-% indiv_lower_cond = (bi + ai .* Gamma_i - sqrt(Pi_max))';
-
-if contains(strat, "total")
-    c = total_cond;
-elseif contains(strat, "indiv.")
-    c = indiv_upper_cond; % , indiv_lower_cond];
-elseif contains(strat, "mixed")
-    c = [total_cond; indiv_upper_cond];
-else
-    error("Unknown experiment specified!")
-end
-
-ceq = [];
+    ai = x;
+    
+    if contains(strat, "linear")
+        indiv_peak_power_vals = (ai .* (Mi + Gamma_i)).^2;
+    else
+        % indiv_peak_power_vals = ai .* (Mi + Gamma_i) - bi;
+        indiv_peak_power_vals = (ai .* (Mi./2 + Gamma_i)).^2;
+    end
+    
+    total_cond = sum(indiv_peak_power_vals) - P_max;
+    indiv_upper_cond = (indiv_peak_power_vals - Pi_max)';
+    % indiv_lower_cond = (bi + ai .* Gamma_i - sqrt(Pi_max))';
+    
+    if contains(strat, "total")
+        c = total_cond;
+    elseif contains(strat, "indiv.")
+        c = indiv_upper_cond; % , indiv_lower_cond];
+    elseif contains(strat, "mixed")
+        c = [total_cond; indiv_upper_cond];
+    else
+        error("Unknown experiment specified!")
+    end
+    
+    ceq = [];
 end
