@@ -4,7 +4,6 @@ close all
 
 % Set seed for reproducibility
 seed = 264;
-disp(seed);
 rng(seed);
 
 nDeployments = 100;
@@ -19,9 +18,6 @@ pool = gcp('nocreate');
 if isempty(pool)
     parpool('local');
 end
-
-nWorkers = pool.NumWorkers;  % e.g. 4
-batchSize = ceil(nDeployments / nWorkers);
 
 % Set number of sensors
 sensor_vals = 5; % [5,10]
@@ -99,21 +95,22 @@ E_mag_g_sqr = 2*rayleigh_factor^2;
 E_mi_sqr = (1/12) * (max_mi-min_mi)^2 + 0.5*(min_mi+max_mi);
 
 % Set miscellaneous parameters
-alpha_weight_vals = 0.5;
 D_val = 0.5;
 norm_fact = 1;
-Gamma = 1;
-
 
 % Choose which experiment to run.
-experiment_list = ["cwe_disjoint_peak_power_opt"; 
+% experiment_list = ["cwe_disjoint_peak_power_opt"; 
+%     "cwe_disjoint_peak_power_opt_diff_rho"; 
+%     "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped";
+%     "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"; 
+%     "cwe_disjoint_peak_power_opt_diff_weights";
+%     "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha"; 
+%     "cwe_disjoint_peak_power_opt_diff_obj_functions";
+%     "cwe_disjoint_peak_power_opt_asymp_approx"];
+
+experiment_list = [
     "cwe_disjoint_peak_power_opt_diff_rho"; 
-    "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped";
-    "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"; 
-    "cwe_disjoint_peak_power_opt_diff_weights";
-    "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha"; 
-    "cwe_disjoint_peak_power_opt_diff_obj_functions";
-    "cwe_disjoint_peak_power_opt_asymp_approx"];
+    ];
 
 % experiment = "cwe_disjoint_peak_power_opt";
 
@@ -134,18 +131,18 @@ for experiment_idx = 1:numel(experiment_list)
     if contains(experiment, "diff_rho")
         % Define channel snr values.
         channel_snr = 15; %%% TODO: need to make this dynamic
-        rho_vals = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+        rho_vals = [0.5, 0.75, 1, 1.25, 1.5];
     
         pivot_vals = rho_vals;
     
-        constraints = ["total"]; % "total", "indiv.", "mixed"
+        constraints = ["indiv.","total"]; % "total", "indiv.", "mixed"
         transforms = ["linear", "affine"]; % "linear", "affine"
         coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
         approaches = ["prop. scaling", "opt."];
     
     elseif contains(experiment, "bottom_clipping_nonclipped")
         channel_snr = linspace(0,18,5);
-        rho_vals = 0.5;
+        rho_vals = 0.75;
     
         pivot_vals = rho_vals;
         
@@ -370,7 +367,7 @@ for experiment_idx = 1:numel(experiment_list)
     
                     P0_max = mean((Gi).^2, "all");
                     Pi_max = rho * P0_max; % rho * (Mi + Gamma_i).^2;
-                    P_max = D_val * S*Pi_max;
+                    P_max = D_val * S * Pi_max;
     
                     alpha_max = Xi * alpha_true;
                     Mi = alpha_max .* mi.^2 .* E0;
@@ -948,7 +945,7 @@ for experiment_idx = 1:numel(experiment_list)
         files_to_save = ["avg_dep_var", "avg_dep_mse", "avg_dep_bias", "avg_dep_crlb",...
             "agent_db_values", "channel_snr", "selected_schemes", "dropout_vals", "sensor_vals", "channel_db_values",...
             "experiment", "sensor_dimension", "save_images", "K", "nDeployments",...
-            "constraints", "transforms", "coeff_types", "approaches", "iter_arr", "iter_length", "all_strats", "num_strats", "opt_coeffs", "alpha_weight_vals", "save_images",...
+            "constraints", "transforms", "coeff_types", "approaches", "iter_arr", "iter_length", "all_strats", "num_strats", "opt_coeffs", "save_images",...
             "T0", "Tp", "alpha_true", "t0_true", "ci", "clean_y_arr", "rho_vals", "Mi", "Gamma_i", "Pi_max", "pivot_vals"];
         save(experiment + "_results.mat", files_to_save{:})
     end
@@ -961,18 +958,16 @@ function [c, ceq] = fmincon_constraints(x, Mi, Gamma_i, Pi_max, P_max, strat)
     if contains(strat, "linear")
         indiv_peak_power_vals = (ai .* (Mi + Gamma_i)).^2;
     else
-        % indiv_peak_power_vals = ai .* (Mi + Gamma_i) - bi;
         indiv_peak_power_vals = (ai .* (Mi./2 + Gamma_i)).^2;
     end
     
     total_cond = sum(indiv_peak_power_vals) - P_max;
     indiv_upper_cond = (indiv_peak_power_vals - Pi_max)';
-    % indiv_lower_cond = (bi + ai .* Gamma_i - sqrt(Pi_max))';
     
     if contains(strat, "total")
         c = total_cond;
     elseif contains(strat, "indiv.")
-        c = indiv_upper_cond; % , indiv_lower_cond];
+        c = indiv_upper_cond;
     elseif contains(strat, "mixed")
         c = [total_cond; indiv_upper_cond];
     else
