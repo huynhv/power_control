@@ -34,16 +34,15 @@ for agent_db_idx = 1:length(agent_db_values)
         avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,:) = avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,:) ./ norm_coeff;
         
         % Collect all plot values for y-axis scaling.
-        all_vals = [avg_dep_mse(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,find(contains(constraints, "indiv.")))];
+        all_vals = [avg_dep_mse(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:, find(contains(constraints, "indiv.")))];
         avg_vals = mean(squeeze(all_vals),2);
 
         for scheme_idx = 1:length(selected_schemes)
             scheme = selected_schemes(scheme_idx);
-            for constraint_idx = find(contains(constraints, "indiv.")) % 1:length(constraints)
+            for constraint_idx = find(contains(constraints, "indiv."))
                 constraint = constraints(constraint_idx);
                 data_idx_seq = selected_strat_idxs(find(contains(selected_strats, constraint)).');
 
-                % Plot pseudoplots for legend symbols.
                 fig1 = figure;
                 fig_x = 100;
                 fig_y = 100;
@@ -51,7 +50,7 @@ for agent_db_idx = 1:length(agent_db_values)
                 fig_h = 450;
 
                 set(fig1,'Position',[fig_x, fig_y, fig_w, fig_h],'Name',constraint)
-                t = tiledlayout(fig1, 1, 1);  % 1x1 layout just to get access to Layout-aware legend placement
+                t = tiledlayout(fig1, 1, 1);
                 ax = nexttile(t);
                 hold(ax, 'on');
 
@@ -71,7 +70,6 @@ for agent_db_idx = 1:length(agent_db_values)
                 lgd = [];
 
                 for pivot_idx = 1:numel(pivot_vals)
-                    % lgd = [lgd pivot_vals(pivot_idx)];
                     lgd = [lgd "$$w_{t_0}^{(" + pivot_idx + ")}$$"];
                     plot(ax, nan,nan,'color',RGB(pivot_idx,:),'LineWidth',2);
                 end
@@ -81,7 +79,7 @@ for agent_db_idx = 1:length(agent_db_values)
                 x_axis_series = channel_db_values;
                 plot_line_width = 1.5;
 
-                for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
+                for strat_idx = data_idx_seq
                     strat = all_strats(strat_idx);
                     split_str = split(strat);
                     iter_key = join(split_str(2:end), " ");
@@ -119,11 +117,9 @@ for agent_db_idx = 1:length(agent_db_values)
                 dataW = w0;
                 dataH = h0;
 
-                % 3. Convert position (X, Y) - Includes the axes offset
                 normX = axPos(1) + ((dataX - xLimits(1)) / (xLimits(2) - xLimits(1))) * axPos(3);
                 normY = 0.025 + axPos(2) + ((dataY - yLimits(1)) / (yLimits(2) - yLimits(1))) * axPos(4);
 
-                % 4. Convert size (Width, Height) - Scales without the offset
                 normW = (dataW / (xLimits(2) - xLimits(1))) * axPos(3);
                 normH = (dataH / (yLimits(2) - yLimits(1))) * axPos(4);
 
@@ -139,7 +135,6 @@ for agent_db_idx = 1:length(agent_db_values)
                 normROI_tl = [normX, normY+normH];
                 normROI_tr = [normX+normW, normY+normH];
 
-                % Account for the actual visual bounds of the plot including labels
                 ax_outer = ax.OuterPosition;   % includes labels/ticks, not just the axes box
                 ax_center_x = ax_outer(1) + ax_outer(3)/2;
                 lgd_width = lgd_handle.Position(3);
@@ -153,14 +148,12 @@ for agent_db_idx = 1:length(agent_db_values)
                 box(axInset, 'on')
                 grid(axInset, 'on')
 
-                % 5. Draw the annotation using the normalized coordinates
                 annotation('rectangle', normROI, 'Color', 'k', 'LineWidth', 1);
                 annotation(fig1, 'line', [normROI_tl(1), inset_bl(1)/fig_w], [normROI_tl(2), inset_bl(2)/fig_h], ...
                     'Color', 'k', 'LineStyle', ':', 'LineWidth', 1);
                 annotation(fig1, 'line', [normROI_tr(1), inset_br(1)/fig_w], [normROI_tr(2), inset_br(2)/fig_h], ...
                     'Color', 'k', 'LineStyle', ':', 'LineWidth', 1);
 
-                % Save the figure.
                 if save_images
                     save_folder = folder_path + "diff_weights";
                     if ~exist(save_folder, 'dir')

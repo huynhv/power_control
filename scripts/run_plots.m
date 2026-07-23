@@ -1,4 +1,4 @@
-% run the plotting scripts
+% Run the plotting scripts
 disp("Starting plotting script...")
 plot_overlaid
 plot_asymp_approx

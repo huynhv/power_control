@@ -46,7 +46,6 @@ for agent_db_idx = 1:length(agent_db_values)
             for constraint_idx = 1:length(constraints)
                 constraint = constraints(constraint_idx);
                 data_idx_seq = selected_strat_idxs(find(contains(selected_strats, constraint)).');
-                % Plot pseudoplots for legend symbols.
 
                 if constraint == "indiv."
                     figLgd = figure;
@@ -57,7 +56,6 @@ for agent_db_idx = 1:length(agent_db_values)
 
                     lgd = [];
 
-                    % Plot pseudoplots for legend symbols.
                     for count_idx = data_idx_seq
                         strat = all_strats(count_idx);
                         split_str = split(strat);
@@ -97,7 +95,7 @@ for agent_db_idx = 1:length(agent_db_values)
                 plot_line_width = 1.5;
 
                 for count_idx = 1:length(count_vals)
-                    for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
+                    for strat_idx = data_idx_seq
                         strat = all_strats(strat_idx);
                         split_str = split(strat);
                         iter_key = join(split_str(2:end), " ");
@@ -123,7 +121,6 @@ for agent_db_idx = 1:length(agent_db_values)
 
                 ax.XTick = channel_snr;
 
-                % Save the figure.
                 if save_images
                     save_folder = folder_path + "overlaid";
                     if ~exist(save_folder, 'dir')

@@ -117,9 +117,6 @@ for channel_db_idx = 1
                 ax.YScale = 'log';          % log scale if needed
                 grid(ax, 'on');             % turn on grid
 
-                % y_lower = 10^(-0.25)*min(all_vals,[],"all");
-                % y_upper = 1.05*max(all_vals,[],"all");
-                % ylim([y_lower,y_upper]);
                 xlim([0,20]);
 
                 % Save the figure.

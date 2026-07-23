@@ -38,10 +38,7 @@ for agent_db_idx = 1:length(agent_db_values)
         avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,:) = avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,:) ./ norm_coeff;
         
         % Collect all plot values for y-axis scaling.
-        all_vals = [avg_dep_mse(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,accepted_rho_idxs)
-                    % avg_dep_crlb(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
-                    % avg_dep_var(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
-                    ];
+        all_vals = [avg_dep_mse(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,accepted_rho_idxs)];
 
         for scheme_idx = 1:length(selected_schemes)
             scheme = selected_schemes(scheme_idx);
@@ -51,7 +48,6 @@ for agent_db_idx = 1:length(agent_db_values)
             for constraint_idx = 1:length(constraints)
                 constraint = constraints(constraint_idx);
                 data_idx_seq = selected_strat_idxs(find(contains(selected_strats, constraint)).');
-                % Plot pseudoplots for legend symbols.
 
                 fig1 = figure;
                 set(fig1,'Position',[100,100,450,450])
@@ -80,9 +76,7 @@ for agent_db_idx = 1:length(agent_db_values)
                     split_str = split(strat);
                     iter_key = join(split_str(2:end), " ");
 
-                    % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
                     plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,accepted_rho_idxs,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                    % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
                 end
 
                 xlabel('$$\rho$$','Interpreter','latex')

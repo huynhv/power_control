@@ -43,7 +43,6 @@ for agent_db_idx = 1:length(agent_db_values)
                 constraint = constraints(constraint_idx);
                 data_idx_seq = selected_strat_idxs(find(contains(selected_strats, constraint)).');
 
-                % Plot pseudoplots for legend symbols.
                 fig1 = figure;
                 fig_x = 100;
                 fig_y = 100;
@@ -80,7 +79,7 @@ for agent_db_idx = 1:length(agent_db_values)
                 x_axis_series = channel_db_values;
                 plot_line_width = 1.5;
 
-                for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
+                for strat_idx = data_idx_seq
                     strat = all_strats(strat_idx);
                     split_str = split(strat);
                     iter_key = join(split_str(2:end), " ");
@@ -150,7 +149,6 @@ for agent_db_idx = 1:length(agent_db_values)
                 box(axInset, 'on')
                 grid(axInset, 'on')
 
-                % 5. Draw the annotation using the normalized coordinates
                 annotation('rectangle', normROI, 'Color', 'k', 'LineWidth', 1);
                 annotation(fig1, 'line', [normROI_tl(1), inset_bl(1)/fig_w], [normROI_tl(2), inset_bl(2)/fig_h], ...
                     'Color', 'k', 'LineStyle', ':', 'LineWidth', 1);

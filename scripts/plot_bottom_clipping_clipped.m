@@ -34,23 +34,15 @@ for agent_db_idx = 1:length(agent_db_values)
         
         % Collect all plot values for y-axis scaling.
         all_vals = [avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension)];
-            %         avg_dep_crlb(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-            %         avg_dep_var(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension);
-            %         avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,1:sensor_dimension)
-            %         ];
 
         for scheme_idx = 1:length(selected_schemes)
             scheme = selected_schemes(scheme_idx);
-
-            % set(fig1,'Position',[0,0,1920,1080], 'Name', params_text(param_idx) + " hat | " + constraints(1) + " | alpha = " + alpha_true + ", t0 = " + t0_true + ", Tp = " + Tp + ", T0 = " + T0, 'NumberTitle', 'off')
-            % tiledlayout(1,length(constraints));
 
             count_vals = sensor_vals;
 
             for constraint_idx = 1:length(constraints)
                 constraint = constraints(constraint_idx);
                 data_idx_seq = selected_strat_idxs(find(contains(selected_strats, constraint)).');
-                % Plot pseudoplots for legend symbols.
 
                 if constraint == "indiv."
                     figLgd = figure;
@@ -61,7 +53,6 @@ for agent_db_idx = 1:length(agent_db_values)
 
                     lgd = [];
 
-                    % Plot pseudoplots for legend symbols.
                     for count_idx = data_idx_seq
                         strat = all_strats(count_idx);
                         split_str = split(strat);
@@ -101,14 +92,12 @@ for agent_db_idx = 1:length(agent_db_values)
                 plot_line_width = 1.5;
 
                 for count_idx = 1:length(count_vals)
-                    for strat_idx = data_idx_seq % (constraint_idx-1)*iter_length + (1:iter_length) %%% num_strats
+                    for strat_idx = data_idx_seq
                         strat = all_strats(strat_idx);
                         split_str = split(strat);
                         iter_key = join(split_str(2:end), " ");
 
                         plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-x','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                        % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
-                        % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,:,param_idx,scheme_idx,count_idx,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
                     end
                 end
 

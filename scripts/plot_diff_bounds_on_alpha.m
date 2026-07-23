@@ -17,10 +17,8 @@ colorMap = containers.Map(cellstr(unique(iter_arr)), colors(1:numel(iter_arr)));
 home_dir = char(java.lang.System.getProperty('user.home'));
 folder_path = home_dir + "\Desktop\Peak Power AirComp Results\";
 
-% exclude = all_strats(contains(all_strats, "hetero.") & contains(all_strats, "asymp. approx.")); % ["None"];
-
 for agent_db_idx = 1:length(agent_db_values)
-    selected_strat_idxs = find(contains(all_strats, "hetero. affine opt.")); % find((1:numel(all_strats)) .* ~ismember(all_strats,exclude).');
+    selected_strat_idxs = find(contains(all_strats, "hetero. affine opt."));
     selected_strats = all_strats(selected_strat_idxs);
     channel_db_idx = 1:5;
     for param_idx = 1:2
@@ -36,17 +34,13 @@ for agent_db_idx = 1:length(agent_db_values)
         avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,:) = avg_dep_mse(selected_strat_idxs,agent_db_idx,:,param_idx,:,:) ./ norm_coeff;
         
         % Collect all plot values for y-axis scaling.
-        all_vals = [avg_dep_mse(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,:)
-                    % avg_dep_crlb(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
-                    % avg_dep_var(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,1:length(rho_vals));
-                    ];
+        all_vals = [avg_dep_mse(selected_strat_idxs,agent_db_idx,channel_db_idx,param_idx,:,:)];
 
         for scheme_idx = 1:length(selected_schemes)
             scheme = selected_schemes(scheme_idx);
             for constraint_idx = 1:length(constraints)
                 constraint = constraints(constraint_idx);
                 data_idx_seq = selected_strat_idxs(find(contains(selected_strats, constraint)).');
-                % Plot pseudoplots for legend symbols.
 
                 fig1 = figure;
                 set(fig1,'Position',[100,100,450,450])
@@ -71,9 +65,7 @@ for agent_db_idx = 1:length(agent_db_values)
                     iter_key = join(split_str(2:end), " ");
 
                     for ii = 1:numel(pivot_vals)
-                        % plot(ax, x_axis_series,(squeeze(avg_dep_var(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'-^','color',colorMap(iter_key),'LineWidth', plot_line_width)
                         plot(ax, x_axis_series,(squeeze(avg_dep_mse(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,ii))),'-x','color',RGB(ii,:),'LineWidth', plot_line_width)
-                        % plot(ax, x_axis_series,(squeeze(avg_dep_crlb(strat_idx,agent_db_idx,channel_db_idx,param_idx,scheme_idx,:,1))),'--o','color',colorMap(iter_key),'LineWidth', plot_line_width)
                     end
                 end
 
