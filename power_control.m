@@ -2,6 +2,8 @@
 clear all
 close all
 
+addpath('.\functions')
+
 % Set seed for reproducibility
 seed = 264;
 rng(seed);
@@ -12,9 +14,9 @@ K = 251;
 % Set number of trials.
 nTrials = 500;
 
-% check if parpool instance is already running
+% Check if parpool instance is already running
 pool = gcp('nocreate');
-% if not, then start one
+% If not, then start one
 if isempty(pool)
     parpool('local');
 end
@@ -71,7 +73,7 @@ if t0_true > t0_max
     error("True value of t0 exceeds maximum!")
 end
 
-%%% Always generate w, n, and channel gain for S = 10, then use subsets for different S trials
+%%% Always generate w, n, and channel gain for maximum S, then use subsets for different S trials
 S_max = max(sensor_vals);
 % Generate sensor noise with dimensions: K x S x trials x deployments.
 all_w = randn(K,S_max,nTrials,nDeployments);
@@ -109,16 +111,14 @@ norm_fact = 1;
 %     "cwe_disjoint_peak_power_opt_asymp_approx"];
 
 experiment_list = [
-    "cwe_disjoint_peak_power_opt_diff_rho"; 
+    "cwe_disjoint_peak_power_opt"; 
     ];
-
-% experiment = "cwe_disjoint_peak_power_opt";
 
 for experiment_idx = 1:numel(experiment_list)
     experiment = experiment_list(experiment_idx);
 
     msg    = ['Running: ' char(experiment)];
-    pad    = 2;  % spaces on each side
+    pad    = 2;
     width  = strlength(msg) + pad*2;
     border = repmat('─', 1, width);
     
@@ -130,14 +130,14 @@ for experiment_idx = 1:numel(experiment_list)
     agent_db_values = 0;
     if contains(experiment, "diff_rho")
         % Define channel snr values.
-        channel_snr = 15; %%% TODO: need to make this dynamic
+        channel_snr = 15;
         rho_vals = [0.5, 0.75, 1, 1.25, 1.5];
     
         pivot_vals = rho_vals;
     
-        constraints = ["indiv.","total"]; % "total", "indiv.", "mixed"
-        transforms = ["linear", "affine"]; % "linear", "affine"
-        coeff_types = ["homog.","hetero."];  % "homog.", "hetero."
+        constraints = ["indiv."];
+        transforms = ["linear", "affine"];
+        coeff_types = ["homog.","hetero."];
         approaches = ["prop. scaling", "opt."];
     
     elseif contains(experiment, "bottom_clipping_nonclipped")
@@ -146,9 +146,9 @@ for experiment_idx = 1:numel(experiment_list)
     
         pivot_vals = rho_vals;
         
-        constraints = ["indiv."]; % "indiv.", "total", "mixed"
-        transforms = ["linear", "affine"]; % "linear", "affine"
-        coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
+        constraints = ["indiv."];
+        transforms = ["linear", "affine"];
+        coeff_types = ["homog.", "hetero."];
         approaches = ["prop. scaling", "opt."];
     
     elseif contains(experiment, "bottom_clipping_clipped")
@@ -157,10 +157,10 @@ for experiment_idx = 1:numel(experiment_list)
     
         pivot_vals = rho_vals;
         
-        constraints = ["indiv."]; % "indiv.", "total", "mixed"
-        transforms = ["linear", "affine"]; % "linear", "affine"
-        coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-        approaches = ["prop. scaling", "opt."]; % "asymp. approx.", "opt."
+        constraints = ["indiv."];
+        transforms = ["linear", "affine"];
+        coeff_types = ["homog.", "hetero."];
+        approaches = ["prop. scaling", "opt."];
     
     elseif contains(experiment, "diff_weights")
         channel_snr = linspace(0,18,5);
@@ -169,10 +169,10 @@ for experiment_idx = 1:numel(experiment_list)
     
         pivot_vals = weight_vals;
     
-        constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
-        transforms = ["linear", "affine"]; % "linear", "affine"
-        coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-        approaches = ["prop. scaling", "opt."]; % "asymp. approx.", "opt."
+        constraints = ["indiv."];
+        transforms = ["linear", "affine"];
+        coeff_types = ["homog.", "hetero."];
+        approaches = ["prop. scaling", "opt."];
     
     elseif contains(experiment, "diff_bounds_on_alpha")
         channel_snr = linspace(0,18,5);
@@ -182,24 +182,24 @@ for experiment_idx = 1:numel(experiment_list)
     
         pivot_vals = Xi_vals;
     
-        constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
-        transforms = ["linear", "affine"]; % "linear", "affine"
-        coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-        approaches = ["prop. scaling", "opt."]; % "asymp. approx.", "opt."
+        constraints = ["indiv."];
+        transforms = ["linear", "affine"];
+        coeff_types = ["homog.", "hetero."];
+        approaches = ["prop. scaling", "opt."];
     
     elseif contains(experiment, "asymp_approx")
         channel_snr = 0;
         rho_vals = 0.5;
         weight_vals = 1;
         Xi_vals = 1;
-        agent_db_values = linspace(0,20,5);
+        agent_db_values = linspace(0,18,5);
     
         pivot_vals = rho_vals;
     
-        constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
-        transforms = ["linear", "affine"]; % "linear", "affine"
-        coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-        approaches = ["asymp. approx.", "prop. scaling", "opt."]; % "asymp. approx.", "opt."
+        constraints = ["indiv.", "total", "mixed"];
+        transforms = ["linear", "affine"];
+        coeff_types = ["homog.", "hetero."];
+        approaches = ["asymp. approx.", "prop. scaling", "opt."];
     
     elseif contains(experiment, "diff_obj_functions")
         channel_snr = linspace(0,18,5);
@@ -211,10 +211,10 @@ for experiment_idx = 1:numel(experiment_list)
     
         pivot_vals = obj_function_vals;
     
-        constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
-        transforms = ["linear", "affine"]; % "linear", "affine"
-        coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-        approaches = ["opt."]; % "prop. scaling", "asymp. approx.", "opt."
+        constraints = ["indiv."];
+        transforms = ["linear", "affine"];
+        coeff_types = ["homog.", "hetero."];
+        approaches = ["opt."];
     
     else
         channel_snr = linspace(0,18,5);
@@ -222,10 +222,10 @@ for experiment_idx = 1:numel(experiment_list)
     
         pivot_vals = rho_vals;
         
-        constraints = ["indiv.", "total", "mixed"]; % "indiv.", "total", "mixed"
-        transforms = ["linear", "affine"]; % "linear", "affine"
-        coeff_types = ["homog.", "hetero."];  % "homog.", "hetero."
-        approaches = ["prop. scaling", "opt."]; % "prop. scaling", "asymp. approx.", "opt."
+        constraints = ["indiv.", "total", "mixed"];
+        transforms = ["linear", "affine"];
+        coeff_types = ["homog.", "hetero."]; 
+        approaches = ["prop. scaling", "opt."];
     end
     
     iter_arr = [];
@@ -246,7 +246,7 @@ for experiment_idx = 1:numel(experiment_list)
                         continue
                     end
     
-                    % do not include homog. asymp. approx in strats
+                    % Do not include homog. asymp. approx in strats
                     if coeff_types(k) == "homog." && approaches(j) == "opt."
                         continue
     
@@ -329,7 +329,7 @@ for experiment_idx = 1:numel(experiment_list)
                 Xi = 1;
                 obj_func = "crlb sum";
             end
-            % rho = rho_vals(pivot_idx);
+
             % Iterate through sensor values.
             for sensor_idx = 1:length(sensor_vals)
                 S = sensor_vals(sensor_idx);
@@ -356,7 +356,6 @@ for experiment_idx = 1:numel(experiment_list)
                     [qgi,~] = quantize_comp(gi,M);
     
                     E0 = sum(util_functions.sensor_signal(t-t0_true, Tp, norm_fact).^2 .* dt, 1);
-                    % Ei = mi.^2 .* E0;
     
                     Gamma_i = gamma_w .* mi.^2 .* E0;
         
@@ -427,7 +426,6 @@ for experiment_idx = 1:numel(experiment_list)
         
                             mag_sqr_S0_internal = @(w) (norm_fact^2) * (2*Bee.^2 .* (1 + cos(w.*pi./Bee)) ) ./ (w.^2 - Bee.^2).^2;
                             mag_sqr_S0 = @(w) util_functions.zeroIfnan(mag_sqr_S0_internal(w)) + (w == Bee | w == -Bee) .* (mag_sqr_S0_internal(w-epsilon) + mag_sqr_S0_internal(w+epsilon))./2;
-                            % mag_sqr_SHdI_anon = @(w) 1 ./ (Gamma + mag_sqr_S0(w));
         
                             %%%%%%%%%%%%%%%%% Define Anonymous Expressions %%%%%%%%%%%%%%%%%
                             if contains(experiment, "cwe") || experiment == "random_dropout"
@@ -454,18 +452,41 @@ for experiment_idx = 1:numel(experiment_list)
                                 % fprintf("Optimizing coeffs. for " + strat + ":");
                                 disp("Optimizing " + strat + " | obj = " + obj_func)
         
-                                % baseline estimation without optimal coefficients
+                                % Baseline estimation without optimal coefficients
                                 if contains(strat, "none")
                                     opt_coeffs(:,1:S,:,:) = ones(size(opt_coeffs(:,1:S,:,:)));
                                     opt_coeffs(:,S+1:end,:,:) = zeros(size(opt_coeffs(:,S+1:end,:,:)));
                                 else
-                                    % estimation with coefficients
+                                    % Estimation with coefficients
                                     if scheme == "EPC"
                                         if contains(strat, "indiv. bottom clipping")
                                             opt_ai = 1;
-                                            % solution using quadratic equation, could explore what if using negative root instead
                                             opt_bi = Gi - sqrt(Pi_max);
-                                            % opt_bi = (sum(Gi,2) + sqrt(sum(Gi,2).^2 - S*(sum(Gi.^2,2)-P_max))) ./ S; 
+
+                                        %%% INDIVIDUAL ENERGY CONSTRAINT
+                                        elseif contains(strat, "indiv. homog. linear prop. scaling") || contains(strat, "indiv. hetero. linear opt.")
+                                            opt_ai = min(Ai_linear, [], 2);
+                                            opt_bi = zeros(size(opt_ai));
+
+                                        elseif contains(strat, "indiv. homog. affine prop. scaling") || contains(strat, "indiv. hetero. affine opt.")
+                                            opt_ai = min(Ai_affine, [], 2);
+                                            opt_bi = opt_ai .* Mi ./ 2;
+
+                                        elseif contains(strat, "indiv. hetero. linear prop. scaling")
+                                            opt_ai = Ai_linear;
+                                            opt_bi = zeros(size(opt_ai));
+
+                                        elseif contains(strat, "indiv. hetero. affine prop. scaling")
+                                            opt_ai = Ai_affine;
+                                            opt_bi = opt_ai .* Mi ./ 2;
+
+                                        elseif contains(strat, "indiv. hetero. linear asymp. approx.")
+                                            opt_ai = Ai_linear;
+                                            opt_bi = zeros(size(opt_ai));
+
+                                        elseif contains(strat, "indiv. hetero. affine asymp. approx.")
+                                            opt_ai = Ai_affine;
+                                            opt_bi = opt_ai .* Mi ./ 2;
     
                                         %%% TOTAL ENERGY CONSTRAINT
                                         elseif contains(strat, "total homog. linear prop. scaling") || contains(strat, "total hetero. linear opt.")
@@ -484,33 +505,6 @@ for experiment_idx = 1:numel(experiment_list)
                                             opt_ai = sqrt(P_max ./ sum( (ci.^2 .* mi.^4) ./ Ci_affine, 2)) .* (ci .* mi.^2) ./ Ci_affine;
                                             opt_bi = opt_ai .* Mi ./ 2;
             
-                                        %%% INDIVIDUAL ENERGY CONSTRAINT
-                                        elseif contains(strat, "indiv. homog. linear prop. scaling") || contains(strat, "indiv. hetero. linear opt.")
-                                            opt_ai = min(Ai_linear, [], 2);
-                                            opt_bi = zeros(size(opt_ai));
-            
-                                        elseif contains(strat, "indiv. homog. affine prop. scaling") || contains(strat, "indiv. hetero. affine opt.")
-                                            opt_ai = min(Ai_affine, [], 2);
-                                            opt_bi = opt_ai .* Mi ./ 2;
-    
-                                        elseif contains(strat, "indiv. hetero. linear prop. scaling")
-                                            opt_ai = Ai_linear;
-                                            opt_bi = zeros(size(opt_ai));
-    
-                                        elseif contains(strat, "indiv. hetero. affine prop. scaling")
-                                            opt_ai = Ai_affine;
-                                            opt_bi = opt_ai .* Mi ./ 2;
-            
-                                        elseif contains(strat, "indiv. hetero. linear asymp. approx.")
-                                            % [Gamma_linear, ~] = min(ci .* Ai_linear, [], 2);
-                                            opt_ai = Ai_linear;
-                                            opt_bi = zeros(size(opt_ai));
-            
-                                        elseif contains(strat, "indiv. hetero. affine asymp. approx.")
-                                            % [Gamma_affine, ~] = min(ci .* Ai_affine, [], 2);
-                                            opt_ai = Ai_affine;
-                                            opt_bi = opt_ai .* Mi ./ 2;
-            
                                         %%% MIXED ENERGY CONSTRAINT
                                         elseif contains(strat, "mixed homog. linear prop. scaling") || contains(strat, "mixed hetero. linear opt.")
                                             indiv_cond = min(Ai_linear, [], 2);
@@ -527,7 +521,7 @@ for experiment_idx = 1:numel(experiment_list)
                                             opt_bi = opt_ai .* Mi ./ 2;
     
                                         elseif contains(strat, "mixed") && contains(strat, "hetero.") && contains(strat,"asymp. approx.")
-                                            % initialize ai matrix
+                                            % Initialize ai matrix
                                             opt_ai = zeros(1,S,1,nDeployments);
                                             opt_bi = zeros(1,S,1,nDeployments);
     
@@ -593,133 +587,15 @@ for experiment_idx = 1:numel(experiment_list)
                                                 end
                                             end
                                         end
-                                        %%% end mixed energy constraint
                                     end
+                                    
                                     % Store coeffs if using asymp. approx
                                     if ~contains(strat, "opt.") % contains(strat, "asymp. approx")
                                         opt_coeffs(strat_idx,1:S,:,:) = opt_ai .* ones(size(opt_coeffs(strat_idx,1:S,:,:)));
                                         opt_coeffs(strat_idx,S+1:end,:,:) = opt_bi .* ones(size(opt_coeffs(strat_idx,1:S,:,:)));
-                                    % Run fminsearch
+                                    
+                                        % Run fminsearch
                                     elseif contains(strat, "opt.")
-    
-                                        % % Define parameters for fmincon
-                                        % options = optimoptions('fmincon','Display','off', ...
-                                        %                        'Algorithm','sqp');
-                                        % opt_coeffs_cell = cell(1, nWorkers);                                    
-                                        % opt_starting_coeffs = [opt_ai.*ones(1,S,1,nDeployments) opt_bi.*ones(1,S,1,nDeployments)];
-                                        % 
-                                        % is_linear = contains(strat, "linear");
-                                        % is_affine = contains(strat, "affine");
-                                        % 
-                                        % batchSize = ceil(nDeployments / nWorkers);
-                                        % 
-                                        % % Pre-batch by worker before parfor
-                                        % ci_worker      = cell(1, nWorkers);
-                                        % mi_worker      = cell(1, nWorkers);
-                                        % Mi_worker      = cell(1, nWorkers);
-                                        % Gamma_i_worker = cell(1, nWorkers);
-                                        % Pi_max_worker  = cell(1, nWorkers);
-                                        % P_max_worker   = cell(1, nWorkers);
-                                        % starting_coeffs_worker = cell(1, nWorkers);
-                                        % 
-                                        % for worker_idx = 1:nWorkers
-                                        %     batch_start = (worker_idx-1)*batchSize + 1;
-                                        %     batch_end   = min(worker_idx*batchSize, nDeployments);
-                                        % 
-                                        %     ci_worker{worker_idx}             = ci(:,:,:,batch_start:batch_end);
-                                        %     mi_worker{worker_idx}             = mi(:,:,:,batch_start:batch_end);
-                                        %     Mi_worker{worker_idx}             = Mi(:,:,:,batch_start:batch_end);
-                                        %     Gamma_i_worker{worker_idx}        = Gamma_i(:,:,:,batch_start:batch_end);
-                                        %     starting_coeffs_worker{worker_idx} = opt_starting_coeffs(:,1:S,:,batch_start);
-                                        % 
-                                        %     if ~isscalar(Pi_max)
-                                        %         Pi_max_worker{worker_idx} = Pi_max(:,:,:,batch_start:batch_end);
-                                        %         P_max_worker{worker_idx}  = P_max(:,:,:,batch_start:batch_end);
-                                        %     end
-                                        % end
-                                        % 
-                                        % parfor worker_idx = 1:nWorkers
-                                        %     batch_start      = (worker_idx-1)*batchSize + 1;
-                                        %     batch_end        = min(worker_idx*batchSize, nDeployments);
-                                        %     local_batch_size = batch_end - batch_start + 1;
-                                        % 
-                                        %     local_ci      = ci_worker{worker_idx};
-                                        %     local_mi      = mi_worker{worker_idx};
-                                        %     local_Mi      = Mi_worker{worker_idx};
-                                        %     local_Gamma_i = Gamma_i_worker{worker_idx};
-                                        % 
-                                        %     % init x0 from first deployment in this worker's batch, ensure row vector
-                                        %     x0 = squeeze(starting_coeffs_worker{worker_idx});
-                                        %     x0 = x0(:)';  % [1 x S] row vector
-                                        % 
-                                        %     local_batch_coeffs = zeros(local_batch_size, 2*S);
-                                        % 
-                                        %     for local_idx = 1:local_batch_size
-                                        %         dep_ci      = local_ci(:,:,:,local_idx);
-                                        %         dep_mi      = local_mi(:,:,:,local_idx);
-                                        %         dep_Mi      = local_Mi(:,:,:,local_idx);
-                                        %         dep_Gamma_i = local_Gamma_i(:,:,:,local_idx);
-                                        % 
-                                        %         if isscalar(Pi_max)
-                                        %             dep_Pi_max = Pi_max;
-                                        %             dep_P_max  = P_max;
-                                        %         else
-                                        %             dep_Pi_max = Pi_max_worker{worker_idx}(:,:,:,local_idx);
-                                        %             dep_P_max  = P_max_worker{worker_idx}(:,:,:,local_idx);
-                                        %         end
-                                        % 
-                                        %         lb = zeros(1, S);  % ai >= 0
-                                        %         ub = [];           % unrestricted
-                                        % 
-                                        %         nonlcon = @(x) fmincon_constraints(x, dep_Mi, dep_Gamma_i, dep_Pi_max, dep_P_max, strat);
-                                        % 
-                                        %         if obj_func == "crlb sum"
-                                        %             fmincon_obj = @(x) alpha_objective_array(x, dep_mi, dep_ci) + ...
-                                        %                                t0_weight .* t0_objective_array(x, dep_mi, dep_ci, 1);
-                                        %         elseif obj_func == "fim trace"
-                                        %             fmincon_obj = @(x) -1 * (1/alpha_objective_array(x, dep_mi, dep_ci) + ...
-                                        %                                      1/t0_objective_array(x, dep_mi, dep_ci, 1));
-                                        %         elseif obj_func == "fim det"
-                                        %             fmincon_obj = @(x) -1/(alpha_objective_array(x, dep_mi, dep_ci) * ...
-                                        %                                    t0_objective_array(x, dep_mi, dep_ci, 1));
-                                        %         else
-                                        %             error("Unknown objective function specified!")
-                                        %         end
-                                        % 
-                                        %         [optimal_x, ~, exitflag] = fmincon(fmincon_obj, x0, [], [], [], [], lb, ub, nonlcon, options);
-                                        % 
-                                        %         if exitflag > 0
-                                        %             x0 = optimal_x;   % warm start next deployment in batch
-                                        %         else
-                                        %             x0 = ones(1, S);  % reset on failed solve
-                                        %         end
-                                        % 
-                                        %         % assign ai
-                                        %         local_coeffs = zeros(1, 2*S);
-                                        %         local_coeffs(1:S) = optimal_x;
-                                        % 
-                                        %         % assign bi
-                                        %         if is_linear
-                                        %             local_coeffs(S+1:end) = 0;
-                                        %         elseif is_affine
-                                        %             local_coeffs(S+1:end) = local_coeffs(1:S) .* dep_Mi ./ 2;
-                                        %         end
-                                        % 
-                                        %         local_batch_coeffs(local_idx, :) = local_coeffs;
-                                        %     end
-                                        % 
-                                        %     opt_coeffs_cell{worker_idx} = local_batch_coeffs;
-                                        % end
-                                        % 
-                                        % % Recombine after parfor
-                                        % for worker_idx = 1:nWorkers
-                                        %     batch_start      = (worker_idx-1)*batchSize + 1;
-                                        %     batch_end        = min(worker_idx*batchSize, nDeployments);
-                                        %     local_batch_size = batch_end - batch_start + 1;
-                                        %     opt_coeffs(strat_idx, :, :, batch_start:batch_end) = ...
-                                        %         reshape(opt_coeffs_cell{worker_idx}', [1, 2*S, 1, local_batch_size]);
-                                        % end
-                                        
                                         % Define parameters for fminsearch
                                         options = optimoptions('fmincon','Display','off', ...
                                             'Algorithm','sqp');
@@ -729,10 +605,11 @@ for experiment_idx = 1:numel(experiment_list)
                                         is_linear = contains(strat, "linear");
                                         is_affine = contains(strat, "affine");
     
-                                        % run fmincon using parallelization
+                                        % Run fmincon using parallelization
                                         parfor dep_idx = 1:nDeployments
                                             x0 = opt_starting_coeffs(:,1:S,:,dep_idx);
                                             % x0 = ones(1,S);
+
                                             dep_ci = ci(:,:,:,dep_idx);
                                             dep_mi = mi(:,:,:,dep_idx);
                                             dep_Mi = Mi(:,:,:,dep_idx);
@@ -747,22 +624,10 @@ for experiment_idx = 1:numel(experiment_list)
                                             end
     
                                             lb = zeros(size(x0)); % ai >= 0
-                                            ub = []; % unrestricted
+                                            ub = []; % Upper bound is unrestricted
     
                                             local_coeffs = zeros(1,2*S);
                                             nonlcon = @(x) fmincon_constraints(x, dep_Mi, dep_Gamma_i, dep_Pi_max, dep_P_max, strat);
-    
-                                            % if obj_func == "crlb sum"
-                                            %     % objective is already in form of 1/lambda_alpha, 1/lambda_t0
-                                            %     fmincon_obj = @(x) alpha_objective_array(x, dep_mi, dep_ci) + t0_weight .* t0_objective_array(x, dep_mi, dep_ci, 1);
-                                            % elseif obj_func == "fim trace"
-                                            %     fmincon_obj = @(x) -1* (1/alpha_objective_array(x, dep_mi, dep_ci) + 1/t0_objective_array(x, dep_mi, dep_ci, 1));
-                                            % elseif obj_func == "fim det"
-                                            %     fmincon_obj = @(x) -1/(alpha_objective_array(x, dep_mi, dep_ci) * t0_objective_array(x, dep_mi, dep_ci, 1));
-                                            % else
-                                            %     error("Unknown objective function specified!")
-                                            % end
-                                            % Before parfor — pick the objective form once
                                             
                                             switch obj_func
                                                 case "crlb sum"
@@ -777,16 +642,14 @@ for experiment_idx = 1:numel(experiment_list)
                                                 otherwise
                                                     error("Unknown objective function specified!")
                                             end
-
-                                            % Inside parfor — no branching needed
                                             fmincon_obj = @(x) obj_form(x, dep_mi, dep_ci);
     
                                             [optimal_x, ~] = fmincon(fmincon_obj, x0, [], [], [], [], lb, ub, nonlcon, options);
     
-                                            % assign ai
+                                            % Assign ai
                                             local_coeffs(1:S) = optimal_x;
     
-                                            % assign bi
+                                            % Assign bi
                                             if is_linear
                                                 local_coeffs(S+1:end) = 0;
                                             elseif is_affine
@@ -847,12 +710,7 @@ for experiment_idx = 1:numel(experiment_list)
                                             mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
                                             [max_y_vals,I] = max(mf_with_y, [], 3);
                                         end
-    
-                                        % [Omega_2_t0_search, ~] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), ci, ai, K, dt, Tp);
-                                        % Omega_2_t0_search = reshape(Omega_2_t0_search, K, 1, K, 1, nDeployments);
-                                        % mf_with_y = dt*dt*pagemtimes(pagemtimes(reshape(real(y) + sum(ci .* bi, 2), 1, K, 1, nTrials, nDeployments), reshape(Qn_matrix,K,K,1,1,nDeployments)), Omega_2_t0_search);
-                                        % [max_y_vals,I] = max(mf_with_y, [], 3);
-    
+
                                         t0_estimates_for_plot = reshape((I-1)*dt, 1, 1, nTrials, nDeployments);
         
                                         if contains(experiment, "disjoint")
@@ -861,7 +719,7 @@ for experiment_idx = 1:numel(experiment_list)
                                             t0_estimates_for_alpha = t0_estimates_for_plot;
                                         end
     
-                                        %%% estimate alpha
+                                        %%% Estimate alpha
                                         Af = fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), N, 1);
                                         lag0 = round(Tp/dt);
                                         Y_tensor =  dt*ifft(Af .* mfTemplateFFT, [], 1);
@@ -896,7 +754,6 @@ for experiment_idx = 1:numel(experiment_list)
                             end
                             total_est_time = toc(total_est_start);
                             disp("Total ML estimation time: " + floor(total_est_time/60) + " minutes " + mod(total_est_time,60) + " seconds")
-                            % fprintf('%s ML estimation time: %d minutes %d seconds\n', strat, floor(total_est_time/60), mod(total_est_time,60));
                         end
                         total_channel_db_time = toc(channel_db_start);
                         disp("Total runtime for channel SNR = " + (channel_db_values(scheme_idx,channel_db_idx,agent_db_idx)) + " dB: " + floor(total_channel_db_time/60) + " minutes " + mod(total_channel_db_time,60) + " seconds")
@@ -923,20 +780,21 @@ for experiment_idx = 1:numel(experiment_list)
         avg_dep_mse = mean(rho_empirical_mse,length(size(rho_empirical_mse)));
         avg_dep_crlb = mean(rho_crlb,length(size(rho_crlb)));
     
-        % normalize magnitude metrics
-        avg_dep_var(:,:,:,1,:,:) = avg_dep_var(:,:,:,1,:,:);
-        avg_dep_mse(:,:,:,1,:,:) = avg_dep_mse(:,:,:,1,:,:);
-        avg_dep_crlb(:,:,:,1,:,:) = avg_dep_crlb(:,:,:,1,:,:);
-    
-        % normalize time delay metrics
-        avg_dep_var(:,:,:,2,:,:) = avg_dep_var(:,:,:,2,:,:);
-        avg_dep_mse(:,:,:,2,:,:) = avg_dep_mse(:,:,:,2,:,:);
-        avg_dep_crlb(:,:,:,2,:,:) = avg_dep_crlb(:,:,:,2,:,:);
-    
+        % Placeholder for normalization, but the metrics may be normalized in the plotting scripts as well
+        
+        % avg_dep_var(:,:,:,1,:,:) = avg_dep_var(:,:,:,1,:,:);
+        % avg_dep_mse(:,:,:,1,:,:) = avg_dep_mse(:,:,:,1,:,:);
+        % avg_dep_crlb(:,:,:,1,:,:) = avg_dep_crlb(:,:,:,1,:,:);
+        % 
+        % % Normalize time delay metrics
+        % avg_dep_var(:,:,:,2,:,:) = avg_dep_var(:,:,:,2,:,:);
+        % avg_dep_mse(:,:,:,2,:,:) = avg_dep_mse(:,:,:,2,:,:);
+        % avg_dep_crlb(:,:,:,2,:,:) = avg_dep_crlb(:,:,:,2,:,:);
+
         avg_dep_bias = mean(rho_empirical_bias,length(size(rho_empirical_bias)));
     end
     
-    %% Save experiment results.
+    %% Save experiment results
     save_images = false;
     
     if ~any(experiment == experiment_list)
