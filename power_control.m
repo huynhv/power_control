@@ -122,15 +122,10 @@ experiment_list = ["cwe_disjoint_peak_power_opt";
 for experiment_idx = 1:numel(experiment_list)
     experiment = experiment_list(experiment_idx);
 
-    msg    = ['Running: ' char(experiment)];
-    pad    = 2;
-    width  = strlength(msg) + pad*2;
-    border = repmat('─', 1, width);
-    
-    fprintf('\n╭%s╮\n',   border);
-    fprintf('│%s%s%s│\n', repmat(' ', 1, pad), msg, repmat(' ', 1, pad));
-    fprintf('╰%s╯\n\n',  border);
-    
+    pad_str = '----------';
+    msg = [pad_str  ' ' 'Running: ' char(experiment) ' ' pad_str];
+    fprintf('\n%s\n', msg);
+
     % Configure strategies
     agent_db_values = 0;
     if contains(experiment, "diff_rho")
