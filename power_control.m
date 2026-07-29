@@ -2,7 +2,7 @@
 clear all
 close all
 
-addpath('.\functions')
+add path('.\functions')
 
 % Set seed for reproducibility
 seed = 264;
@@ -110,9 +110,14 @@ norm_fact = 1;
 %     "cwe_disjoint_peak_power_opt_diff_obj_functions";
 %     "cwe_disjoint_peak_power_opt_asymp_approx"];
 
-experiment_list = [
-    "cwe_disjoint_peak_power_opt"; 
-    ];
+experiment_list = ["cwe_disjoint_peak_power_opt"; 
+    "cwe_disjoint_peak_power_opt_diff_rho"; 
+    "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped";
+    "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"; 
+    "cwe_disjoint_peak_power_opt_diff_weights";
+    "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha"; 
+    "cwe_disjoint_peak_power_opt_diff_obj_functions";
+    "cwe_disjoint_peak_power_opt_asymp_approx"];
 
 for experiment_idx = 1:numel(experiment_list)
     experiment = experiment_list(experiment_idx);
@@ -178,9 +183,9 @@ for experiment_idx = 1:numel(experiment_list)
         channel_snr = linspace(0,18,5);
         rho_vals = 0.5;
         weight_vals = 1;
-        Xi_vals = [1, 2, 5, 10];
+        beta_vals = [1, 2, 5, 10];
     
-        pivot_vals = Xi_vals;
+        pivot_vals = beta_vals;
     
         constraints = ["indiv."];
         transforms = ["linear", "affine"];
@@ -191,7 +196,7 @@ for experiment_idx = 1:numel(experiment_list)
         channel_snr = 0;
         rho_vals = 0.5;
         weight_vals = 1;
-        Xi_vals = 1;
+        beta_vals = 1;
         agent_db_values = linspace(0,18,5);
     
         pivot_vals = rho_vals;
@@ -205,7 +210,7 @@ for experiment_idx = 1:numel(experiment_list)
         channel_snr = linspace(0,18,5);
         rho_vals = 0.5;
         weight_vals = 1;
-        Xi_vals = 1;
+        beta_vals = 1;
     
         obj_function_vals = ["crlb sum", "fim trace", "fim det"];
     
@@ -311,22 +316,22 @@ for experiment_idx = 1:numel(experiment_list)
             if contains(experiment, "diff_weights")
                 rho = rho_vals(1);
                 t0_weight = weight_vals(pivot_idx);
-                Xi = 1;
+                beta = 1;
                 obj_func = "crlb sum";
             elseif contains(experiment, "diff_bounds_on_alpha")
                 rho = rho_vals(1);
                 t0_weight = 1;
-                Xi = Xi_vals(pivot_idx);
+                beta = beta_vals(pivot_idx);
                 obj_func = "crlb sum";
             elseif contains(experiment, "diff_obj_functions")
                 rho = rho_vals(1);
                 t0_weight = 1;
-                Xi = 1;
+                beta = 1;
                 obj_func = obj_function_vals(pivot_idx);
             else
                 rho = rho_vals(pivot_idx);
                 t0_weight = 1;
-                Xi = 1;
+                beta = 1;
                 obj_func = "crlb sum";
             end
 
@@ -368,7 +373,7 @@ for experiment_idx = 1:numel(experiment_list)
                     Pi_max = rho * P0_max; % rho * (Mi + Gamma_i).^2;
                     P_max = D_val * S * Pi_max;
     
-                    alpha_max = Xi * alpha_true;
+                    alpha_max = beta * alpha_true;
                     Mi = alpha_max .* mi.^2 .* E0;
                     Ci_linear = (Mi + Gamma_i).^2;
                     Ci_affine = (Mi./2 + Gamma_i).^2;
