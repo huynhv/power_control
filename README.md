@@ -13,4 +13,10 @@ Over-the-Air Collaborative Estimation". Plaintext versions of the .m files can b
 If you encounter any issues with the script, please feel free to reach out to me at `vcvhuynh (at) ucdavis (dot) edu`.
 
 # Known Errata
-A list of known errata will be compiled following the initial submission of the manuscript for review and their effects on the experimental results will be noted below.
+A list of known errata will be compiled following the initial submission of the manuscript for review and their effects on the experimental results 
+will be noted below.
+
+## 8/4/2026
+- Various functions were being called from the separate directory called `util_functions`. We have updated the functions inside the `functions` directory 
+  with the function definitions from `util_functions`. We note that there were primarily semantic differences between the function definitions, which 
+  have no effect on the experimental results.
