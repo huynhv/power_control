@@ -46,7 +46,7 @@ omega = 2*pi*f;
 
 % Calculate the signal energy (such that the signal is assumed to be within the
 % interior to the observation period).
-func = @(t) abs(sensor_signal(t)).^2;
+func = @(t) abs(sensor_signal(t, Tp, 1)).^2;
 Ps = integral(func,0,T0)/T0;
 
 % Define true parameter values.
@@ -355,11 +355,11 @@ for experiment_idx = 1:numel(experiment_list)
                     M = 4;
                     [qgi,~] = quantize_comp(gi,M);
     
-                    E0 = sum(util_functions.sensor_signal(t-t0_true, Tp, norm_fact).^2 .* dt, 1);
+                    E0 = sum(sensor_signal(t-t0_true, Tp, norm_fact).^2 .* dt, 1);
     
                     Gamma_i = gamma_w .* mi.^2 .* E0;
         
-                    noisy_unified_xi = alpha_true .* (mi .* util_functions.sensor_signal(t-t0_true, Tp, norm_fact)) + scaled_w(:,1:S,:,:);
+                    noisy_unified_xi = alpha_true .* (mi .* sensor_signal(t-t0_true, Tp, norm_fact)) + scaled_w(:,1:S,:,:);
     
                     Mi_true = alpha_true .* mi.^2 .* E0;
                     Gi = Mi_true + Gamma_i;
@@ -378,9 +378,9 @@ for experiment_idx = 1:numel(experiment_list)
     
                     % Define search space for t0
                     t0_search_space = repmat(reshape(t,1,1,[]), 1,1,1,nDeployments);
-                    [~, ui_t0_search] = util_functions.mf_integral_fft(mi .* util_functions.sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* util_functions.sensor_signal(t, Tp, norm_fact), 1, 1, K, dt, Tp);
+                    [~, ui_t0_search] = mf_integral_fft(mi .* sensor_signal(t-t0_search_space, Tp, norm_fact), mi .* sensor_signal(t, Tp, norm_fact), 1, 1, K, dt, Tp);
                     % Precompute FFT for matched filter template
-                    mfTemplate = mi .* util_functions.sensor_signal(t, Tp, norm_fact);
+                    mfTemplate = mi .* sensor_signal(t, Tp, norm_fact);
                     % FFT size = 2*K - 1
                     N = 2*K - 1;
                     mfTemplateFFT = fft(mfTemplate, N, 1);
@@ -425,16 +425,16 @@ for experiment_idx = 1:numel(experiment_list)
                             Bee = pi/Tp;
         
                             mag_sqr_S0_internal = @(w) (norm_fact^2) * (2*Bee.^2 .* (1 + cos(w.*pi./Bee)) ) ./ (w.^2 - Bee.^2).^2;
-                            mag_sqr_S0 = @(w) util_functions.zeroIfnan(mag_sqr_S0_internal(w)) + (w == Bee | w == -Bee) .* (mag_sqr_S0_internal(w-epsilon) + mag_sqr_S0_internal(w+epsilon))./2;
+                            mag_sqr_S0 = @(w) zeroIfnan(mag_sqr_S0_internal(w)) + (w == Bee | w == -Bee) .* (mag_sqr_S0_internal(w-epsilon) + mag_sqr_S0_internal(w+epsilon))./2;
         
                             %%%%%%%%%%%%%%%%% Define Anonymous Expressions %%%%%%%%%%%%%%%%%
                             if contains(experiment, "cwe") || experiment == "random_dropout"
                                 if (scheme == "MPC" || scheme == "EPC")
                                     V_arr_internal = @(w, ai, mi, ci) scaled_w_psd_constant .* sum(ci.^2 .* ai.^2 .* mi.^2, 2) .* mag_sqr_S0_internal(w) + scaled_n_psd_constant/2;
-                                    V_arr = @(w, ai, mi, ci) util_functions.zeroIfnan(V_arr_internal(w, ai, mi, ci)) + (w == Bee | w == -Bee) .* (V_arr_internal(w-epsilon, ai, mi, ci) + V_arr_internal(w+epsilon, ai, mi, ci))./2;
+                                    V_arr = @(w, ai, mi, ci) zeroIfnan(V_arr_internal(w, ai, mi, ci)) + (w == Bee | w == -Bee) .* (V_arr_internal(w-epsilon, ai, mi, ci) + V_arr_internal(w+epsilon, ai, mi, ci))./2;
         
                                     H_arr_internal = @(w, ai, mi, ci) (1 + epsilon) ./ (V_arr_internal(w, ai, mi, ci) + epsilon);
-                                    H_arr = @(w, ai, mi, ci) util_functions.zeroIfnan(H_arr_internal(w, ai, mi, ci)) + (w == Bee | w == -Bee) .* (H_arr_internal(w-epsilon, ai, mi, ci) + H_arr_internal(w+epsilon, ai, mi, ci))./2;
+                                    H_arr = @(w, ai, mi, ci) zeroIfnan(H_arr_internal(w, ai, mi, ci)) + (w == Bee | w == -Bee) .* (H_arr_internal(w-epsilon, ai, mi, ci) + H_arr_internal(w+epsilon, ai, mi, ci))./2;
         
                                     alpha_objective_array = @(ai, mi, ci) (2*pi) ./( ((sum(ci .* ai .* mi.^2)).^2) .* integral(@(w) (mag_sqr_S0(w)).^2 / V_arr(w, ai, mi, ci), -Inf, Inf, 'ArrayValued', true));
                                     t0_objective_array = @(ai, mi, ci, arb_alpha) (2*pi) ./( (arb_alpha^2 .* (sum(ci .* ai .* mi.^2)).^2) .* integral(@(w) (w .* mag_sqr_S0(w)).^2 / V_arr(w,ai, mi, ci), -Inf, Inf, 'ArrayValued', true));
@@ -674,7 +674,7 @@ for experiment_idx = 1:numel(experiment_list)
                             total_est_start = tic;
     
                             % Compute ui here so we don't have to recompute FFT for each strat
-                            [~, ui] = mf_integral_fft(noisy_unified_xi, mi .* util_functions.sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
+                            [~, ui] = mf_integral_fft(noisy_unified_xi, mi .* sensor_signal(t-tpi, Tp, norm_fact), 1, 1, K, dt, Tp);
     
                             disp("Begin ML estimation...")
                             for strat_idx = 1:num_strats
@@ -720,7 +720,7 @@ for experiment_idx = 1:numel(experiment_list)
                                         end
     
                                         %%% Estimate alpha
-                                        Af = fft(mi .* util_functions.sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), N, 1);
+                                        Af = fft(mi .* sensor_signal(t-t0_estimates_for_alpha, Tp, norm_fact), N, 1);
                                         lag0 = round(Tp/dt);
                                         Y_tensor =  dt*ifft(Af .* mfTemplateFFT, [], 1);
                                         ui_tensor = Y_tensor(lag0+1 : (lag0+K), :, :, :);
@@ -748,8 +748,8 @@ for experiment_idx = 1:numel(experiment_list)
                                 rho_empirical_bias(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,pivot_idx,save_dim,:) = mean(t0_estimates_for_plot,3);
         
                                 if scheme == "EPC"
-                                    rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,pivot_idx,save_dim,:) = alpha_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci);
-                                    rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,pivot_idx,save_dim,:) = t0_objective_array(util_functions.unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci, alpha_true);
+                                    rho_crlb(strat_idx,agent_db_idx,channel_db_idx,1,scheme_idx,pivot_idx,save_dim,:) = alpha_objective_array(unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci);
+                                    rho_crlb(strat_idx,agent_db_idx,channel_db_idx,2,scheme_idx,pivot_idx,save_dim,:) = t0_objective_array(unsqueeze(opt_coeffs(strat_idx, 1:S, :),3), mi, ci, alpha_true);
                                 end
                             end
                             total_est_time = toc(total_est_start);
