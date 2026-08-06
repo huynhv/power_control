@@ -2,7 +2,7 @@
 clear all
 close all
 
-add path('.\functions')
+addpath('.\functions')
 
 % Set seed for reproducibility
 seed = 264;
