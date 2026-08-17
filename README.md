@@ -16,6 +16,9 @@ If you encounter any issues with the script, please feel free to reach out to me
 A list of known errata will be compiled following the initial submission of the manuscript for review and their effects on the experimental results 
 will be noted below.
 
+## 8/17/2026
+- Added `unsqueeze.m` to `functions`.
+
 ## 8/5/2026
 - Changed `add path` to `addpath`.
 
