@@ -225,7 +225,7 @@ for experiment_idx = 1:numel(experiment_list)
         constraints = ["indiv.", "total", "mixed"];
         transforms = ["linear", "affine"];
         coeff_types = ["homog.", "hetero."]; 
-        approaches = ["prop. scaling", "opt."];
+        approaches = ["prop. scaling"]; % , "opt."];
     end
     
     iter_arr = [];
