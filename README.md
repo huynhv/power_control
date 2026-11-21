@@ -16,6 +16,9 @@ If you encounter any issues with the script, please feel free to reach out to me
 A list of known errata will be compiled following the initial submission of the manuscript for review and their effects on the experimental results 
 will be noted below.
 
+## 11/21/2026
+- Changed experiments to use joint estimation. Upon visual inspection, the trends from the experimental results remain essentially unchanged.
+
 ## 8/17/2026
 - Added `unsqueeze.m` to `functions`.
 
