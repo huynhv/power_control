@@ -3,7 +3,9 @@ clear all
 
 identifiers = ["^", ">", "v", "<", "*"];
 
-load("../cwe_disjoint_peak_power_opt_diff_bounds_on_alpha_results.mat")
+f = dir('../cwe_*_peak_power_opt_diff_bounds_on_alpha_results.mat');
+assert(~isempty(f), 'No matching results file found.');
+load(fullfile(f(1).folder, f(1).name))
 save_images = true;
 
 params_latex = ["\hat{\alpha}","\hat{t}_0"];
