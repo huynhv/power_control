@@ -1,6 +1,7 @@
 % Clear all variables and close all existing figures.
 clear all
 close all
+scriptTic = tic;
 
 addpath('.\functions')
 
@@ -110,14 +111,25 @@ norm_fact = 1;
 %     "cwe_disjoint_peak_power_opt_diff_obj_functions";
 %     "cwe_disjoint_peak_power_opt_asymp_approx"];
 
-experiment_list = ["cwe_disjoint_peak_power_opt"; 
-    "cwe_disjoint_peak_power_opt_diff_rho"; 
-    "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped";
-    "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"; 
-    "cwe_disjoint_peak_power_opt_diff_weights";
-    "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha"; 
-    "cwe_disjoint_peak_power_opt_diff_obj_functions";
-    "cwe_disjoint_peak_power_opt_asymp_approx"];
+% experiment_list = ["cwe_disjoint_peak_power_opt"; 
+%     "cwe_disjoint_peak_power_opt_diff_rho"; 
+%     "cwe_disjoint_peak_power_opt_bottom_clipping_nonclipped";
+%     "cwe_disjoint_peak_power_opt_bottom_clipping_clipped"; 
+%     "cwe_disjoint_peak_power_opt_diff_weights";
+%     "cwe_disjoint_peak_power_opt_diff_bounds_on_alpha"; 
+%     "cwe_disjoint_peak_power_opt_diff_obj_functions";
+%     "cwe_disjoint_peak_power_opt_asymp_approx"];
+
+% "cwe_joint_peak_power_opt_diff_rho"; 
+% "cwe_joint_peak_power_opt_bottom_clipping_nonclipped";
+% "cwe_joint_peak_power_opt_bottom_clipping_clipped"; 
+% "cwe_joint_peak_power_opt_diff_weights";
+% "cwe_joint_peak_power_opt_diff_bounds_on_alpha"; 
+% "cwe_joint_peak_power_opt_diff_obj_functions";
+% "cwe_joint_peak_power_opt_asymp_approx"
+
+experiment_list = ["cwe_joint_peak_power_opt"];
+
 
 for experiment_idx = 1:numel(experiment_list)
     experiment = experiment_list(experiment_idx);
@@ -225,7 +237,7 @@ for experiment_idx = 1:numel(experiment_list)
         constraints = ["indiv.", "total", "mixed"];
         transforms = ["linear", "affine"];
         coeff_types = ["homog.", "hetero."]; 
-        approaches = ["prop. scaling"]; % , "opt."];
+        approaches = ["prop. scaling", "opt."];
     end
     
     iter_arr = [];
@@ -808,6 +820,9 @@ for experiment_idx = 1:numel(experiment_list)
         save(experiment + "_results.mat", files_to_save{:})
     end
 end
+script_runtime = toc(scriptTic);
+% Display total run time.
+disp("Total runtime: " + floor(script_runtime/60) + " minutes " + mod(script_runtime,60) + " seconds")
 
 %% Functions
 function [c, ceq] = fmincon_constraints(x, Mi, Gamma_i, Pi_max, P_max, strat)
